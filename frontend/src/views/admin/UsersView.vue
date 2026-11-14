@@ -16,6 +16,7 @@ const error = ref('')
 const creditDialog = ref(false)
 const creditSaving = ref(false)
 const creditUser = ref<User | null>(null)
+const creditRequestId = ref('')
 const passwordDialog = ref(false)
 const passwordSaving = ref(false)
 const passwordUser = ref<User | null>(null)
@@ -35,6 +36,7 @@ async function load() {
 
 function openCredit(user: User) {
   creditUser.value = user
+  creditRequestId.value = crypto.randomUUID()
   credit.direction = 'increase'
   credit.amount = ''
   credit.reason = ''
@@ -56,6 +58,7 @@ async function submitCredit() {
       direction: credit.direction,
       amount: credit.amount,
       reason: credit.reason.trim(),
+      request_id: creditRequestId.value,
     })
     const index = users.value.findIndex(user => user.id === response.data.id)
     if (index >= 0) users.value[index] = response.data
@@ -93,7 +96,7 @@ onMounted(load)
       <el-button :icon="Refresh" class="icon-button" :loading="loading" aria-label="刷新用户" @click="load" />
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon role="alert" />
-    <AppTable v-model:page="page" v-model:page-size="pageSize" :data="users" :total="total" :loading="loading" empty-text="暂无用户" @change="load">
+    <AppTable v-model:page="page" v-model:page-size="pageSize" :data="users" :total="total" :loading="loading" empty-text="暂无用户" empty-hint="注册用户会显示在这里。" @change="load">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="email" label="邮箱" min-width="230" />
       <el-table-column label="身份" width="110"><template #default="{ row }">{{ row.is_admin ? '管理员' : '普通用户' }}</template></el-table-column>
@@ -115,12 +118,31 @@ onMounted(load)
           </el-dropdown>
         </template>
       </el-table-column>
+      <template #mobile="{ rows }">
+        <article v-for="row in rows" :key="row.id" class="mobile-card">
+          <header class="mobile-card-header">
+            <div class="mobile-card-title">
+              <strong>{{ row.email }}</strong>
+              <span>ID {{ row.id }} · {{ row.is_admin ? '管理员' : '普通用户' }}</span>
+            </div>
+            <el-tag :type="row.is_active ? 'success' : 'danger'" effect="plain">{{ row.is_active ? '正常' : '已停用' }}</el-tag>
+          </header>
+          <dl class="mobile-card-grid">
+            <div><dt>可用积分</dt><dd class="numeric">{{ row.account.available }}</dd></div>
+            <div><dt>冻结积分</dt><dd class="numeric">{{ row.account.frozen }}</dd></div>
+          </dl>
+          <footer class="mobile-card-actions">
+            <el-button size="small" @click="openCredit(row)">积分调整</el-button>
+            <el-button size="small" @click="openPassword(row)">修改密码</el-button>
+          </footer>
+        </article>
+      </template>
     </AppTable>
     <el-dialog v-model="creditDialog" title="积分调整" width="480px" destroy-on-close>
       <el-form label-position="top">
         <el-form-item label="用户"><el-input :model-value="creditUser?.email || ''" disabled /></el-form-item>
         <el-form-item label="调整方式" required><el-segmented v-model="credit.direction" :options="[{ label: '增加', value: 'increase' }, { label: '扣除', value: 'decrease' }]" /></el-form-item>
-        <el-form-item label="积分数量" required><el-input v-model="credit.amount" inputmode="decimal" placeholder="最多四位小数" /></el-form-item>
+        <el-form-item label="积分数量" required><el-input v-model="credit.amount" inputmode="decimal" placeholder="最多八位小数" /></el-form-item>
         <el-form-item label="备注" required><el-input v-model="credit.reason" maxlength="240" placeholder="填写本次调整原因" /></el-form-item>
       </el-form>
       <template #footer>

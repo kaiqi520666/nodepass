@@ -6,7 +6,7 @@ from app.services.task_execution import process_next_task
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="NodePass image task worker")
+    parser = argparse.ArgumentParser(description="NodePass generation task worker")
     parser.add_argument("--once", action="store_true", help="Process one due task and exit")
     parser.add_argument("--interval", type=float, default=2.0, help="Idle polling interval")
     args = parser.parse_args()

@@ -9,16 +9,19 @@ export interface User {
 
 export interface PublicPrice {
   variant: Record<string, string>
-  unit: 'image' | 'video' | 'second'
+  unit: 'image' | 'video' | 'second' | 'million_tokens'
   unit_price: string
 }
 
 export interface PublicModel {
   id: string
   name: string
-  media_type: 'image' | 'video'
+  media_type: 'image' | 'video' | 'text'
   capabilities: Record<string, string[] | number[] | string | number | boolean>
   prices: PublicPrice[]
+  token_prices?: { input_price: string; output_price: string; cache_read_price: string } | null
+  long_context_threshold?: number | null
+  long_context_token_prices?: { input_price: string; output_price: string; cache_read_price: string } | null
 }
 
 export interface ApiKey {

@@ -31,13 +31,16 @@ class User(Timestamps, Base):
 class CreditAccount(Timestamps, Base):
     __tablename__ = "credit_accounts"
     __table_args__ = (
-        CheckConstraint("available >= 0 AND available < 'Infinity'::numeric", name="available"),
+        CheckConstraint(
+            "available > '-Infinity'::numeric AND available < 'Infinity'::numeric",
+            name="available",
+        ),
         CheckConstraint("frozen >= 0 AND frozen < 'Infinity'::numeric", name="frozen"),
     )
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
-    available: Mapped[Decimal] = mapped_column(Numeric(20, 4), server_default="0.0000")
-    frozen: Mapped[Decimal] = mapped_column(Numeric(20, 4), server_default="0.0000")
+    available: Mapped[Decimal] = mapped_column(Numeric(24, 8), server_default="0.00000000")
+    frozen: Mapped[Decimal] = mapped_column(Numeric(24, 8), server_default="0.00000000")
     user: Mapped[User] = relationship(back_populates="account")
 
 

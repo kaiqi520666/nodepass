@@ -31,20 +31,20 @@ def test_admin_can_adjust_user_credits_and_records_ledger(client, session):
     session.commit()
     response = client.post(
         f"/api/admin/users/{target['id']}/credits",
-        json={"direction": "increase", "amount": "1.23456", "reason": "测试充值"},
+        json={"direction": "increase", "amount": "1.234567895", "reason": "测试充值"},
     )
     assert response.status_code == 200
-    assert response.json()["account"]["available"] == "1.2346"
+    assert response.json()["account"]["available"] == "1.23456790"
     entry = session.scalar(select(CreditEntry).where(CreditEntry.entry_type == "admin_credit"))
     assert entry is not None
-    assert entry.amount == Decimal("1.2346")
+    assert entry.amount == Decimal("1.23456790")
 
     response = client.post(
         f"/api/admin/users/{target['id']}/credits",
-        json={"direction": "decrease", "amount": "0.2346", "reason": "测试扣除"},
+        json={"direction": "decrease", "amount": "0.23456790", "reason": "测试扣除"},
     )
     assert response.status_code == 200
-    assert response.json()["account"]["available"] == "1.0000"
+    assert response.json()["account"]["available"] == "1.00000000"
     assert (
         client.post(
             f"/api/admin/users/{target['id']}/credits",

@@ -10,7 +10,7 @@ from alembic.config import Config
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from psycopg import sql
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -61,7 +61,10 @@ def engine():
 def session(engine):
     with Session(engine, expire_on_commit=False) as session:
         for table in reversed(Base.metadata.sorted_tables):
-            session.execute(table.delete())
+            if table.name == "admin_actions":
+                session.execute(text("TRUNCATE TABLE admin_actions RESTART IDENTITY"))
+            else:
+                session.execute(table.delete())
         session.commit()
         yield session
         session.rollback()

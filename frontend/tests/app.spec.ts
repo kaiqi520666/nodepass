@@ -42,22 +42,16 @@ test('public models, search and API reference', async ({ page }, testInfo) => {
   await page.screenshot({ path: testInfo.outputPath('models-light.png'), fullPage: true })
   await page.goto('/api-docs')
   await expect(page.getByRole('heading', { name: 'API 文档' })).toBeVisible()
-  const compatibleApi = page.getByRole('region', { name: 'OpenAI 兼容接口' })
-  await expect(compatibleApi.getByText('模型列表已开放', { exact: true })).toBeVisible()
-  await expect(compatibleApi.getByText('/v1/models', { exact: true })).toBeVisible()
-  await expect(compatibleApi.locator('pre').first()).toContainText("curl 'http://127.0.0.1:5173/v1/models'")
-  await expect(compatibleApi.locator('pre').first()).toContainText('Authorization: Bearer YOUR_API_KEY')
-  await expect(compatibleApi.locator('pre').nth(1)).toContainText('"object": "list"')
-  await expect(page.getByRole('region', { name: '图片生成' })).toContainText('已开放')
+  await expect(page.getByRole('region', { name: '快速开始', exact: true })).toContainText('HTTP 202')
+  await expect(page.getByRole('region', { name: '模型列表', exact: true })).toContainText('/v1/models')
+  await expect(page.getByRole('region', { name: '图片生成', exact: true })).toContainText('/v1/images/generations')
   await expect(page.getByRole('main')).not.toContainText('/api/public/models')
   const unauthenticated = await page.request.get('/v1/models')
   expect(unauthenticated.status()).toBe(401)
   expect((await unauthenticated.json()).error.code).toBe('invalid_api_key')
   await page.emulateMedia({ colorScheme: 'light' })
-  await page.screenshot({ path: testInfo.outputPath('api-docs-light.png'), fullPage: true, animations: 'disabled' })
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await page.screenshot({ path: testInfo.outputPath('api-docs-dark.png'), fullPage: true, animations: 'disabled' })
   if (testInfo.project.name === 'mobile') {
     await page.setViewportSize({ width: 320, height: 812 })
   }
@@ -155,7 +149,7 @@ test('configured catalog renders and filters fixture data without overflowing', 
     },
   }))
   await page.goto('/models')
-  await expect(page.getByRole('radiogroup', { name: '模型类型' }).locator('.model-type-option .el-icon')).toHaveCount(3)
+  await expect(page.getByRole('radiogroup', { name: '模型类型' }).locator('.model-type-option .el-icon')).toHaveCount(4)
   await expect(page.getByText(longId, { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.getByRole('radiogroup', { name: '模型类型' }).getByText('视频', { exact: true }).click()
@@ -174,12 +168,13 @@ for (const isAdmin of [false, true]) {
       account: { available: '0.0000', frozen: '0.0000' },
     }
     await page.route('**/api/account/me', route => route.fulfill({ json: user }))
+    await page.route('**/api/account/logout', route => route.fulfill({ status: 204 }))
     await page.route('**/api/account/keys', route => route.fulfill({ json: { data: [] } }))
     await page.route('**/api/admin/users?*', route => route.fulfill({ json: { data: [user], total: 1 } }))
     await page.goto('/admin/users')
     if (isAdmin) {
       await expect(page.getByRole('heading', { name: '用户管理' })).toBeVisible()
-      await expect(page.getByRole('main').getByRole('cell', { name: user.email, exact: true })).toBeVisible()
+      await expect(page.getByRole('main').getByText(user.email, { exact: true })).toBeVisible()
       await expect(page.locator('.topbar').getByRole('link', { name: '用户管理', exact: true })).toHaveClass(/el-button/)
     } else {
       await expect(page).toHaveURL('/console')
@@ -269,9 +264,9 @@ test('API Key creation, one-time display and revocation with response fixtures',
 test('public homepage, image placeholders and navigation use the website layout', async ({ page }, testInfo) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'NodePass', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /一个 Key/ })).toBeVisible()
   await expect(page.locator('.console-shell')).toHaveCount(0)
-  await expect(page.getByRole('img', { name: '首页展示图占位' })).toBeVisible()
+  await expect(page.locator('.home-terminal')).toBeVisible()
   await expect(page.getByRole('img', { name: '图片效果展示占位' })).toBeVisible()
   await expect(page.getByRole('img', { name: '视频效果展示占位' })).toBeVisible()
   await expect(page.getByText('服务正常', { exact: true })).toHaveCount(0)
@@ -325,6 +320,20 @@ test('signed-in visitors keep the website layout and enter the five-menu console
   }
   await page.route('**/api/account/me', route => route.fulfill({ json: user }))
   await page.route('**/api/account/tasks', route => route.fulfill({ json: { data: [] } }))
+  await page.route('**/api/account/dashboard', route => route.fulfill({
+    json: {
+      available: '12.34560000', consumed: '3.60035201', requests: 7, today_consumed: '1.80035201',
+      trend: [
+        { date: '2026-11-09', consumed: '0.10000000' },
+        { date: '2026-11-10', consumed: '0.20000000' },
+        { date: '2026-11-11', consumed: '0.00000000' },
+        { date: '2026-11-12', consumed: '0.40000000' },
+        { date: '2026-11-13', consumed: '0.50000000' },
+        { date: '2026-11-14', consumed: '0.60000000' },
+        { date: '2026-11-15', consumed: '1.80035201' },
+      ],
+    },
+  }))
   await page.goto('/')
   const account = page.locator('.public-header').getByRole('link', { name: user.email.split('@')[0], exact: true })
   await expect(account).toBeVisible()
@@ -336,12 +345,12 @@ test('signed-in visitors keep the website layout and enter the five-menu console
   await account.click()
   await expect(page).toHaveURL('/console')
   await expect(page.getByRole('heading', { name: '仪表盘', exact: true })).toBeVisible()
-  await expect(page.getByText('12.3456', { exact: true })).toBeVisible()
+  await expect(page.getByText('12.34560000', { exact: true })).toBeVisible()
   const statistics = page.locator('.dashboard-statistics')
   await expect(statistics.locator('.dashboard-statistic')).toHaveCount(4)
   await expect(statistics.locator('dt')).toHaveText(['可用积分', '已用积分', '请求次数', '今日消耗'])
-  await expect(statistics.locator('dd')).toHaveText(['12.3456', '—', '—', '—'])
-  await expect(statistics.getByLabel('暂无数据')).toHaveCount(3)
+  await expect(statistics.locator('dd')).toHaveText(['12.34560000', '3.60035201', '7', '1.80035201'])
+  await expect(statistics.getByLabel('暂无数据')).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: '快捷入口', exact: true })).toHaveCount(0)
   await expect(page.locator('.topbar .header-account')).toHaveCount(0)
   await expect(page.locator('.topbar').getByRole('link', { name: '返回官网', exact: true })).toHaveClass(/el-button/)

@@ -33,7 +33,6 @@ def add_model(session):
         sale_unit_price=Decimal("1.2300"),
         cost_unit="image",
         cost_unit_price=Decimal("0.01700000"),
-        cost_currency="CNY",
     )
     session.add(price)
     session.commit()
@@ -52,7 +51,7 @@ def test_catalog_empty_then_returns_only_public_fields(client, session):
                 "name": "Test model",
                 "media_type": "image",
                 "capabilities": {"sizes": ["1024x1024"]},
-                "prices": [{"variant": {}, "unit": "image", "unit_price": "1.2300"}],
+                "prices": [{"variant": {}, "unit": "image", "unit_price": "1.23000000"}],
             }
         ]
     }
@@ -85,7 +84,6 @@ def test_json_price_uniqueness_ignores_object_key_order(client, session):
             sale_unit_price=Decimal("2.0000"),
             cost_unit="image",
             cost_unit_price=Decimal("0.01000000"),
-            cost_currency="CNY",
         )
     )
     with pytest.raises(IntegrityError):

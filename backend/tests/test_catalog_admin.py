@@ -41,10 +41,9 @@ def model_payload(provider_id):
         "pricing_dimensions": ["tier", "quality"],
         "prices": [
             {
-                "variant": {},
+                "variant": {"tier": "web", "quality": "low"},
                 "sale_unit_price": "0.1000",
                 "cost_unit_price": "0.01700000",
-                "cost_currency": "CNY",
             }
         ],
         "is_active": True,
@@ -60,42 +59,12 @@ def create_model(client):
     return response.json(), payload
 
 
-def test_gpt_image_26_web_profile_supports_size():
-    profile = next(item for item in image_profiles() if item["id"] == "gpt-image-2.6")
-    assert profile["sizes"] == [
-        "1:1",
-        "3:2",
-        "16:9",
-        "4:3",
-        "3:4",
-        "5:4",
-        "4:5",
-        "21:9",
-        "9:21",
-        "2:3",
-        "9:16",
-        "1:3",
-        "3:1",
-        "auto",
-    ]
-
-
-def test_gpt_image_26_web_size_is_valid(administrator):
-    provider_id = administrator.post("/api/admin/providers", json=PROVIDER).json()["id"]
-    payload = model_payload(provider_id)
-    payload.update(
-        {
-            "public_id": "gpt-image-26-web-size-test",
-            "upstream_model_id": "gpt-image-2.6",
-            "capabilities": {
-                "sizes": ["9:16"],
-                "defaults": {"size": "9:16"},
-            },
-            "pricing_dimensions": [],
-        }
-    )
-    response = administrator.post("/api/admin/models", json=payload)
-    assert response.status_code == 201, response.text
+def test_only_two_parameterized_upstream_profiles():
+    profiles = image_profiles()
+    assert [profile["id"] for profile in profiles] == ["gpt-image-2-x", "gpt-image-2.5-x"]
+    assert profiles[0]["series"] == []
+    assert profiles[1]["series"] == ["flare", "sunburst"]
+    assert all(profile["tiers"] == ["web", "1k", "2k", "4k"] for profile in profiles)
 
 
 def test_management_requires_admin_and_trusted_origin(client, session):
@@ -264,7 +233,7 @@ def test_model_prices_publish_hide_and_atomic_update(administrator):
     client = administrator
     model, payload = create_model(client)
     listing = client.get("/api/public/models")
-    assert listing.json()["data"][0]["prices"][0]["unit_price"] == "0.1000"
+    assert listing.json()["data"][0]["prices"][0]["unit_price"] == "0.10000000"
     for private in ["cost", "upstream_model_id", PROVIDER["api_key"], "defaults"]:
         assert private not in listing.text
     assert client.get("/api/admin/models").json()["data"][0] == model
@@ -274,13 +243,13 @@ def test_model_prices_publish_hide_and_atomic_update(administrator):
     assert updated.status_code == 200
     assert updated.json()["prices"][0]["id"] == model["prices"][0]["id"]
     assert client.get("/api/public/models").json()["data"][0]["prices"][0]["unit_price"] == (
-        "0.2345"
+        "0.23450000"
     )
     bad = deepcopy(payload)
-    bad["prices"][0]["sale_unit_price"] = "0.00001"
+    bad["prices"][0]["sale_unit_price"] = "0.000000001"
     assert client.put(f"/api/admin/models/{model['id']}", json=bad).status_code == 422
     assert client.get("/api/admin/models").json()["data"][0]["prices"][0]["sale_unit_price"] == (
-        "0.2345"
+        "0.23450000"
     )
     payload["is_active"] = False
     assert client.put(f"/api/admin/models/{model['id']}", json=payload).status_code == 200
@@ -342,14 +311,13 @@ def test_model_profile_rules_defaults_price_variants_and_cross_model_ids(adminis
     assert client.put(f"/api/admin/models/{model['id']}", json=payload).status_code == 422
 
 
-def test_fixed_pixel_limits_and_variant_swap_preserve_price_ids(administrator):
+def test_parameter_variant_swap_preserves_price_ids(administrator):
     client = administrator
     model, payload = create_model(client)
-    payload["upstream_model_id"] = "gpt-image-2.6-flare-4k"
     payload["capabilities"] = {
         "qualities": ["low", "high"],
-        "sizes": ["2880x2880"],
-        "defaults": {"quality": "low", "size": "2880x2880"},
+        "sizes": ["1:1"],
+        "defaults": {"quality": "low", "size": "1:1"},
     }
     payload["pricing_dimensions"] = ["quality"]
     price = payload["prices"][0]
@@ -362,47 +330,47 @@ def test_fixed_pixel_limits_and_variant_swap_preserve_price_ids(administrator):
         payload["prices"][0]["variant"],
     )
     assert client.put(f"/api/admin/models/{model['id']}", json=payload).status_code == 200
-    payload["capabilities"]["sizes"] = ["3840x2160"]
-    payload["capabilities"]["defaults"]["size"] = "3840x2160"
+    payload["capabilities"]["sizes"] = ["9:16"]
+    payload["capabilities"]["defaults"]["size"] = "9:16"
     assert client.put(f"/api/admin/models/{model['id']}", json=payload).status_code == 200
-    payload["capabilities"]["sizes"] = ["3841x2160"]
+    payload["capabilities"]["sizes"] = ["unknown"]
     assert client.put(f"/api/admin/models/{model['id']}", json=payload).status_code == 422
 
 
 @pytest.mark.parametrize(
     "upstream_id",
     [
-        "gpt-image-2.5-flare",
-        "gpt-image-2.5-sunburst",
-        "gpt-image-2.6-flare",
-        "gpt-image-2.6-sunburst",
+        "gpt-image-2-x",
+        "gpt-image-2.5-x",
     ],
 )
 def test_web_reference_limit_is_configurable_and_published(administrator, upstream_id):
     client = administrator
     options = client.get("/api/admin/image-options").json()["data"]
-    assert (
-        next(profile for profile in options if profile["id"] == upstream_id)["max_reference_images"]
-        is None
-    )
+    assert next(p for p in options if p["id"] == upstream_id)["max_reference_images"] == 9
     provider_id = client.post("/api/admin/providers", json=PROVIDER).json()["id"]
     payload = {
         **model_payload(provider_id),
         "upstream_model_id": upstream_id,
-        "capabilities": {"max_reference_images": 16},
+        "capabilities": {
+            "max_reference_images": 9,
+            "series": ["flare"] if upstream_id == "gpt-image-2.5-x" else [],
+            "defaults": {"series": "flare"} if upstream_id == "gpt-image-2.5-x" else {},
+        },
         "pricing_dimensions": [],
+        "prices": [{**model_payload(provider_id)["prices"][0], "variant": {}}],
     }
     saved = client.post("/api/admin/models", json=payload)
     assert saved.status_code == 201, saved.text
     model_id = saved.json()["id"]
-    assert saved.json()["capabilities"]["max_reference_images"] == 16
+    assert saved.json()["capabilities"]["max_reference_images"] == 9
     assert (
         client.get("/api/public/models").json()["data"][0]["capabilities"]["max_reference_images"]
-        == 16
+        == 9
     )
     payload["capabilities"]["max_reference_images"] = 8
     assert client.put(f"/api/admin/models/{model_id}", json=payload).status_code == 200
-    for invalid_limit in (-1, 17):
+    for invalid_limit in (-1, 10):
         payload["capabilities"]["max_reference_images"] = invalid_limit
         assert client.put(f"/api/admin/models/{model_id}", json=payload).status_code == 422
     assert (
@@ -414,20 +382,19 @@ def test_web_reference_limit_is_configurable_and_published(administrator, upstre
 def test_selected_image_models_allow_database_configured_mask(administrator):
     client = administrator
     provider_id = client.post("/api/admin/providers", json=PROVIDER).json()["id"]
-    upstream_ids = [f"gpt-image-2{suffix}" for suffix in ("", "-1k", "-2k", "-4k")] + [
-        f"gpt-image-{version}-{branch}{suffix}"
-        for version in ("2.5", "2.6")
-        for branch in ("flare", "sunburst")
-        for suffix in ("", "-1k", "-2k", "-4k")
-    ]
-    assert len(upstream_ids) == 20
+    upstream_ids = ["gpt-image-2-x", "gpt-image-2.5-x"]
     for upstream_id in upstream_ids:
         payload = {
             **model_payload(provider_id),
             "public_id": upstream_id,
             "upstream_model_id": upstream_id,
-            "capabilities": {"supports_mask": True},
+            "capabilities": {
+                "supports_mask": True,
+                "series": ["flare"] if upstream_id == "gpt-image-2.5-x" else [],
+                "defaults": {"series": "flare"} if upstream_id == "gpt-image-2.5-x" else {},
+            },
             "pricing_dimensions": [],
+            "prices": [{**model_payload(provider_id)["prices"][0], "variant": {}}],
         }
         saved = client.post("/api/admin/models", json=payload)
         assert saved.status_code == 201, saved.text
@@ -436,5 +403,5 @@ def test_selected_image_models_allow_database_configured_mask(administrator):
             client.put(f"/api/admin/models/{saved.json()['id']}", json=payload).status_code == 200
         )
     published = client.get("/api/public/models").json()["data"]
-    assert len(published) == 20
+    assert len(published) == 2
     assert all(model["capabilities"]["supports_mask"] is True for model in published)

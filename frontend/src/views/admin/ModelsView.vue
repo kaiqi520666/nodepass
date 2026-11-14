@@ -3,12 +3,18 @@ import { computed, onMounted, reactive, ref, toRaw } from 'vue'
 import { ArrowDown, ArrowUp, Check, Close, CopyDocument, Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { http, errorMessage } from '../../api/http'
-import type { ImageCapabilities, ImageProfile, ManagedModel, ModelPrice, Provider } from '../../types/catalog'
+import { copyText } from '../../utils/clipboard'
+import type { ImageCapabilities, ImageProfile, ManagedCatalogModel, ManagedModel, ManagedTextModel, ManagedVideoModel, ModelPrice, Provider } from '../../types/catalog'
 import AppTable from '../../components/AppTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import VideoModelDialog from './VideoModelDialog.vue'
+import TextModelDialog from './TextModelDialog.vue'
 
-type FormPrice = ModelPrice & { default_price: boolean }
-const models = ref<ManagedModel[]>([])
+const models = ref<ManagedCatalogModel[]>([])
+const videoDialogOpen = ref(false)
+const editingVideo = ref<ManagedVideoModel>()
+const textDialogOpen = ref(false)
+const editingText = ref<ManagedTextModel>()
 const providers = ref<Provider[]>([])
 const profiles = ref<ImageProfile[]>([])
 const loading = ref(false)
@@ -35,65 +41,57 @@ const dimensions = capabilityFields.slice(0, 4)
 function emptyCapabilities(): ImageCapabilities {
   return { sizes: [], qualities: [], tiers: [], series: [], backgrounds: [], output_formats: [], max_reference_images: 0, supports_mask: false, defaults: {} }
 }
-function emptyPrice(): FormPrice {
-  return { variant: {}, sale_unit: 'image', sale_unit_price: '', cost_unit: 'image', cost_unit_price: '', cost_currency: 'CNY', default_price: true }
+function emptyPrice(): ModelPrice {
+  return { variant: {}, sale_unit: 'image', sale_unit_price: '', cost_unit: 'image', cost_unit_price: '' }
 }
 function emptyForm() {
   return {
     public_id: '', display_name: '', media_type: 'image' as const, provider_id: undefined as number | undefined,
     upstream_model_id: '', capabilities: emptyCapabilities(), pricing_dimensions: [] as string[],
-    prices: [] as FormPrice[], is_active: false,
+    prices: [] as ModelPrice[], is_active: false,
   }
 }
 const form = reactive(emptyForm())
 const profile = computed(() => profiles.value.find(item => item.id === form.upstream_model_id))
-function modelInfo(model: ManagedModel) {
-  const match = /^gpt-image-(2(?:\.5|\.6)?)(?:-(flare|sunburst))?(?:-(1k|2k|4k))?$/.exec(model.upstream_model_id)
+function modelInfo(model: ManagedCatalogModel) {
+  if (model.media_type === 'text') return { family: model.capabilities.family, name: model.display_name, tiers: [] as string[] }
+  if (model.media_type === 'video') return { family: model.capabilities.family, name: model.display_name, tiers: model.capabilities.resolutions }
+  const match = /^gpt-image-(2(?:\.5)?)-x$/.exec(model.upstream_model_id)
   const family = profiles.value.find(item => item.id === model.upstream_model_id)?.family
     || (match ? `gpt-image-${match[1]}` : '其他')
-  const name = match ? `GPT Image ${match[1]}${match[2] ? ` · ${match[2] === 'flare' ? 'Flare' : 'Sunburst'}` : ''}` : model.display_name
+  const name = match ? `GPT Image ${match[1]}` : model.display_name
   return {
     family,
     name: model.display_name !== model.public_id && model.display_name !== model.upstream_model_id ? model.display_name : name,
-    tiers: match ? [match[3] || 'web'] : model.capabilities.tiers,
+    tiers: model.capabilities.tiers,
   }
 }
 
 // Only trim trailing zeros: price display and grouping must not pass through floating point.
 function money(value: string) {
   const [integer, fraction = ''] = value.split('.')
-  return `${integer}.${fraction.replace(/0+$/, '').padEnd(4, '0')}`
+  return `${integer}.${fraction.padEnd(8, '0')}`
 }
 
 function variantLabel(variant: Record<string, string>) {
   return Object.entries(variant).map(([key, value]) => `${key}: ${value}`).join(' · ') || '默认'
 }
 
-function priceGroups(prices: ModelPrice[], kind: 'cost' | 'sale') {
-  const groups = new Map<string, { amount: string; currency: string; variants: Record<string, string>[] }>()
+function minimumPrice(prices: ModelPrice[], kind: 'cost' | 'sale') {
+  let minimum = ''
+  const scaled = (value: string) => BigInt(value.split('.')[0]! + value.split('.')[1]!.padEnd(8, '0'))
   for (const price of prices) {
     const amount = money(kind === 'cost' ? price.cost_unit_price : price.sale_unit_price)
-    const currency = kind === 'cost' ? price.cost_currency : ''
-    const key = `${currency}:${amount}`
-    const group = groups.get(key)
-    if (group) group.variants.push(price.variant)
-    else groups.set(key, { amount, currency, variants: [price.variant] })
+    if (!minimum || scaled(amount) < scaled(minimum)) minimum = amount
   }
-  return [...groups.values()].map(group => {
-    const qualities = group.variants.map(variant => variant.quality).sort().join(',')
-    const qualityOnly = group.variants.every(variant => Object.keys(variant).length === 1 && variant.quality)
-    const detail = group.variants.map(variantLabel).join('；')
-    const label = groups.size === 1 ? '' : qualityOnly && qualities === 'high,low,medium' ? '常规'
-      : qualityOnly && qualities === 'max,xhigh' ? '高质量' : detail
-    return { ...group, label, detail }
-  })
+  return minimum
 }
 
 const rows = computed(() => models.value.map(model => ({
   ...model, ...modelInfo(model),
   providerName: providers.value.find(provider => provider.id === model.provider_id)?.name || '—',
-  costGroups: priceGroups(model.prices, 'cost'),
-  saleGroups: priceGroups(model.prices, 'sale'),
+  costMinimum: minimumPrice(model.prices, 'cost'),
+  saleMinimum: minimumPrice(model.prices, 'sale'),
 })))
 const families = computed(() => [...new Set(rows.value.map(model => model.family))])
 const hasFilters = computed(() => !!(query.value.trim() || familyFilter.value || tierFilter.value || statusFilter.value))
@@ -109,10 +107,7 @@ function togglePrices(id: number) {
 }
 
 async function copyId(id: string) {
-  try {
-    await navigator.clipboard.writeText(id)
-    ElMessage.success('模型 ID 已复制')
-  } catch { ElMessage.error('复制失败，请手动复制模型 ID') }
+  await copyText(id, '模型 ID 已复制', '复制失败，请手动复制模型 ID')
 }
 const rules: FormRules = {
   public_id: [
@@ -125,7 +120,7 @@ const rules: FormRules = {
 }
 const saleRules = [
   { required: true, message: '请输入售价', trigger: 'blur' },
-  { pattern: /^(0|[1-9]\d{0,15})(\.\d{1,4})?$/, message: '请输入非负金额，最多四位小数', trigger: 'blur' },
+  { pattern: /^(0|[1-9]\d{0,15})(\.\d{1,8})?$/, message: '请输入非负金额，最多八位小数', trigger: 'blur' },
 ]
 const costRules = [
   { required: true, message: '请输入成本价', trigger: 'blur' },
@@ -137,7 +132,7 @@ async function load() {
   error.value = ''
   try {
     const [modelResponse, providerResponse, optionResponse] = await Promise.all([
-      http.get<{ data: ManagedModel[] }>('/admin/models'),
+      http.get<{ data: ManagedCatalogModel[] }>('/admin/models'),
       http.get<{ data: Provider[] }>('/admin/providers'),
       http.get<{ data: ImageProfile[] }>('/admin/image-options'),
     ])
@@ -148,12 +143,22 @@ async function load() {
   finally { loading.value = false }
 }
 
-function edit(model?: ManagedModel) {
+function edit(model?: ManagedCatalogModel) {
+  if (model?.media_type === 'text') {
+    editingText.value = model
+    textDialogOpen.value = true
+    return
+  }
+  if (model?.media_type === 'video') {
+    editingVideo.value = model
+    videoDialogOpen.value = true
+    return
+  }
   editingId.value = model?.id
   const values = model ? structuredClone(toRaw(model)) : undefined
   Object.assign(form, emptyForm(), values ? {
     ...values, capabilities: { ...emptyCapabilities(), ...values.capabilities },
-    prices: values.prices.map(price => ({ ...price, default_price: !Object.keys(price.variant).length })),
+    prices: values.prices,
   } : {})
   formError.value = ''
   dialogOpen.value = true
@@ -176,7 +181,6 @@ function updateOptions(parameter: string, field: typeof capabilityFields[number]
 function updateDimensions() {
   for (const price of form.prices) {
     price.variant = Object.fromEntries(Object.entries(price.variant).filter(([key]) => form.pricing_dimensions.includes(key)))
-    if (!form.pricing_dimensions.length) price.default_price = true
   }
 }
 
@@ -189,7 +193,7 @@ async function save() {
       public_id: form.public_id, display_name: form.display_name, media_type: form.media_type,
       provider_id: form.provider_id, upstream_model_id: form.upstream_model_id,
       capabilities: form.capabilities, pricing_dimensions: form.pricing_dimensions, is_active: form.is_active,
-      prices: form.prices.map(({ default_price, ...price }) => ({ ...price, variant: default_price ? {} : price.variant })),
+      prices: form.prices,
     }
     if (editingId.value) await http.put(`/admin/models/${editingId.value}`, payload)
     else await http.post('/admin/models', payload)
@@ -208,6 +212,8 @@ onMounted(load)
       <div class="management-actions">
         <el-button :icon="Refresh" class="icon-button" :loading="loading" aria-label="刷新配置" title="刷新配置" @click="load" />
         <el-button type="primary" :icon="Plus" :disabled="loading || !!error" @click="edit()">新增图片模型</el-button>
+        <el-button :icon="Plus" :disabled="loading || !!error" @click="editingVideo = undefined; videoDialogOpen = true">新增视频模型</el-button>
+        <el-button :icon="Plus" :disabled="loading || !!error" @click="editingText = undefined; textDialogOpen = true">新增文本模型</el-button>
       </div>
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon class="form-alert" role="alert" />
@@ -217,26 +223,27 @@ onMounted(load)
         <el-option v-for="family in families" :key="family" :label="family" :value="family" />
       </el-select>
       <el-select v-model="tierFilter" clearable placeholder="全部档位" aria-label="筛选模型档位">
-        <el-option v-for="tier in ['web', '1k', '2k', '4k']" :key="tier" :label="tier === 'web' ? 'Web' : tier.toUpperCase()" :value="tier" />
+        <el-option v-for="tier in [...new Set(rows.flatMap(item => item.tiers))]" :key="tier" :label="tier === 'web' ? 'Web' : tier.toUpperCase()" :value="tier" />
       </el-select>
       <el-select v-model="statusFilter" clearable placeholder="全部状态" aria-label="筛选上架状态">
         <el-option label="已上架" value="active" /><el-option label="已下架" value="inactive" />
       </el-select>
     </div>
-    <AppTable class="managed-model-table" :data="filtered" :loading="loading" row-key="id" :expand-row-keys="expandedRows" :empty-text="hasFilters ? '没有匹配的图片模型' : '暂无图片模型'" @expand-change="(_row: ManagedModel, expanded: ManagedModel[]) => expandedRows = expanded.map(item => item.id)">
+    <AppTable class="managed-model-table" :data="filtered" :loading="loading" row-key="id" :expand-row-keys="expandedRows" :empty-text="hasFilters ? '没有匹配的模型' : '暂无模型'" :empty-hint="hasFilters ? '调整搜索或筛选条件后重试。' : '先配置供应商，再添加模型和价格。'" @expand-change="(_row: ManagedCatalogModel, expanded: ManagedCatalogModel[]) => expandedRows = expanded.map(item => item.id)">
         <el-table-column type="expand" width="44">
           <template #default="{ row }">
             <div :id="`model-prices-${row.id}`" class="model-price-details">
               <table :aria-label="`${row.public_id} 完整价目`">
                 <caption>完整价目 <span>{{ row.public_id }}</span></caption>
-                <thead><tr><th scope="col">参数组合</th><th scope="col">成本（原币 / 张）</th><th scope="col">售价（积分 / 张）</th></tr></thead>
+                <thead><tr><th scope="col">参数组合</th><th scope="col">成本</th><th scope="col">售价（积分）</th></tr></thead>
                 <tbody>
                   <tr v-for="(price, index) in row.prices" :key="price.id ?? index">
                     <th scope="row">{{ variantLabel(price.variant) }}</th>
-                    <td class="numeric">{{ price.cost_currency === 'USD' ? '$' : '¥' }}{{ money(price.cost_unit_price) }}</td>
-                    <td class="numeric">{{ money(price.sale_unit_price) }}</td>
+                    <td class="numeric">{{ money(price.cost_unit_price) }} / {{ { image: '张', video: '条', second: '秒' }[price.cost_unit as ModelPrice['cost_unit']] }}</td>
+                    <td class="numeric">{{ money(price.sale_unit_price) }} / {{ { image: '张', video: '条', second: '秒' }[price.sale_unit as ModelPrice['sale_unit']] }}</td>
                   </tr>
-                  <tr v-if="!row.prices.length"><td colspan="3">暂无价目</td></tr>
+                  <tr v-if="row.token_price"><th scope="row">销售倍率 / 成本倍率</th><td class="numeric">{{ row.token_price.cost_multiplier }}</td><td class="numeric">{{ row.token_price.sale_multiplier }}</td></tr>
+                  <tr v-if="!row.prices.length && !row.token_price"><td colspan="3">暂无价目</td></tr>
                 </tbody>
               </table>
             </div>
@@ -253,23 +260,26 @@ onMounted(load)
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="档位" width="90"><template #default="{ row }"><span class="model-tier">{{ row.tiers.map((tier: string) => tier === 'web' ? 'Web' : tier.toUpperCase()).join(' / ') || '—' }}</span></template></el-table-column>
+        <el-table-column label="档位" min-width="150"><template #default="{ row }">{{ row.tiers.map((tier: string) => tier === 'web' ? 'Web' : tier.toUpperCase()).join(' / ') || '—' }}</template></el-table-column>
         <el-table-column label="供应商" min-width="110"><template #default="{ row }">{{ row.providerName }}</template></el-table-column>
-        <el-table-column v-for="column in [{ key: 'costGroups', label: '成本（原币 / 张）' }, { key: 'saleGroups', label: '售价（积分 / 张）' }]" :key="column.key" :label="column.label" min-width="185" align="right">
+        <el-table-column v-for="column in [{ key: 'costMinimum', label: '成本' }, { key: 'saleMinimum', label: '售价（积分）' }]" :key="column.key" :label="column.label" min-width="185" align="right">
           <template #default="{ row }">
-            <button v-if="row.prices.length" type="button" class="model-price-summary" :aria-label="`查看 ${row.public_id} ${column.key === 'costGroups' ? '成本' : '售价'}明细`" :aria-expanded="expandedRows.includes(row.id)" :aria-controls="`model-prices-${row.id}`" @click="togglePrices(row.id)">
-              <span v-for="group in row[column.key]" :key="`${group.currency}:${group.amount}`" class="model-price-group" :title="group.detail">
-                <span v-if="group.label" class="model-price-quality">{{ group.label }}</span>
-                <strong class="numeric">{{ group.currency ? (group.currency === 'USD' ? '$' : '¥') : '' }}{{ group.amount }}</strong>
+            <button v-if="row.prices.length" type="button" class="model-price-summary" :aria-label="`查看 ${row.public_id} ${column.key === 'costMinimum' ? '成本' : '售价'}明细`" :aria-expanded="expandedRows.includes(row.id)" :aria-controls="`model-prices-${row.id}`" @click="togglePrices(row.id)">
+              <span class="model-price-group">
+                <strong class="numeric">{{ row[column.key] }}</strong>
+                <span class="model-price-quality">/ {{ { image: '张', video: '条', second: '秒' }[row.prices[0][column.key === 'costMinimum' ? 'cost_unit' : 'sale_unit'] as ModelPrice['sale_unit']] }}{{ row.prices.length > 1 ? ' 起' : '' }}</span>
               </span>
               <el-icon class="model-price-chevron" aria-hidden="true"><ArrowUp v-if="expandedRows.includes(row.id)" /><ArrowDown v-else /></el-icon>
             </button>
+            <span v-else-if="row.token_price" class="numeric">{{ column.key === 'costMinimum' ? row.token_price.cost_multiplier : row.token_price.sale_multiplier }} × 基准价</span>
             <span v-else class="price-unit">未配置</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="row.is_active ? 'success' : 'info'" effect="plain">{{ row.is_active ? '已上架' : '已下架' }}</el-tag></template></el-table-column>
         <el-table-column label="操作" width="76" fixed="right"><template #default="{ row }"><el-tooltip content="编辑模型与价格" placement="top"><el-button class="icon-button" :icon="Edit" :aria-label="`编辑 ${row.display_name}`" @click="edit(models.find(model => model.id === row.id))" /></el-tooltip></template></el-table-column>
     </AppTable>
+    <VideoModelDialog v-if="videoDialogOpen" :model="editingVideo" :providers="providers" @close="videoDialogOpen = false" @saved="load" />
+    <TextModelDialog v-if="textDialogOpen" :model="editingText" :providers="providers" @close="textDialogOpen = false" @saved="load" />
     <el-dialog v-model="dialogOpen" :title="editingId ? '编辑图片模型' : '新增图片模型'" width="960px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
       <el-alert v-if="formError" :title="formError" type="error" :closable="false" show-icon class="form-alert" role="alert" />
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="save">
@@ -294,7 +304,7 @@ onMounted(load)
           <h2 class="section-title">能力参数</h2>
           <div v-for="field in capabilityFields.filter(item => profile![item.field].length)" :key="field.parameter" class="capability-form-row">
             <el-form-item :label="field.label">
-              <el-select v-model="form.capabilities[field.field]" multiple filterable :allow-create="field.parameter === 'size'" default-first-option @change="updateOptions(field.parameter, field.field)">
+              <el-select v-model="form.capabilities[field.field]" multiple filterable default-first-option @change="updateOptions(field.parameter, field.field)">
                 <el-option v-for="value in profile[field.field]" :key="value" :label="value" :value="value" />
               </el-select>
             </el-form-item>
@@ -305,7 +315,7 @@ onMounted(load)
             </el-form-item>
           </div>
           <div class="management-form-grid">
-            <el-form-item label="参考图数量上限"><el-input-number v-model="form.capabilities.max_reference_images" :min="0" :max="profile.max_reference_images ?? 16" :precision="0" /></el-form-item>
+            <el-form-item label="参考图数量上限"><el-input-number v-model="form.capabilities.max_reference_images" :min="0" :max="profile.max_reference_images" :precision="0" /></el-form-item>
             <el-form-item label="蒙版编辑"><el-switch v-model="form.capabilities.supports_mask" active-text="允许" inactive-text="关闭" /></el-form-item>
           </div>
         </template>
@@ -315,23 +325,16 @@ onMounted(load)
             <el-checkbox v-for="field in dimensions" :key="field.parameter" :value="field.parameter" :disabled="!form.capabilities[field.field].length && !form.pricing_dimensions.includes(field.parameter)">{{ field.label }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
-        <div v-for="(price, index) in form.prices" :key="index" class="price-editor">
-          <div class="price-editor-heading">
-            <strong>价目 {{ index + 1 }}</strong>
-            <el-switch v-model="price.default_price" active-text="默认价" :disabled="!form.pricing_dimensions.length" />
-            <el-button :icon="Delete" class="icon-button" :aria-label="`删除价目 ${index + 1}`" title="删除价目" @click="form.prices.splice(index, 1)" />
-          </div>
-          <div v-if="!price.default_price" class="management-form-grid">
-            <el-form-item v-for="field in dimensions.filter(item => form.pricing_dimensions.includes(item.parameter))" :key="field.parameter" :label="field.label">
-              <el-select v-model="price.variant[field.parameter]"><el-option v-for="value in form.capabilities[field.field]" :key="value" :label="value" :value="value" /></el-select>
-            </el-form-item>
-          </div>
-          <div class="price-form-grid">
-            <el-form-item label="售价（积分 / 张）" :prop="`prices.${index}.sale_unit_price`" :rules="saleRules"><el-input v-model="price.sale_unit_price" inputmode="decimal" maxlength="21" /></el-form-item>
-            <el-form-item label="成本（原币 / 张）" :prop="`prices.${index}.cost_unit_price`" :rules="costRules"><el-input v-model="price.cost_unit_price" inputmode="decimal" maxlength="25" /></el-form-item>
-            <el-form-item label="成本币种"><el-select v-model="price.cost_currency"><el-option label="人民币 CNY" value="CNY" /><el-option label="美元 USD" value="USD" /></el-select></el-form-item>
-          </div>
-        </div>
+        <AppTable :data="form.prices" :pagination="false" class="price-editor-table" empty-text="暂无价目">
+          <el-table-column v-for="field in dimensions.filter(item => form.pricing_dimensions.includes(item.parameter))" :key="field.parameter" :label="field.label" min-width="125">
+            <template #default="{ row, $index }">
+              <el-select v-model="row.variant[field.parameter]" :aria-label="`价目 ${$index + 1} ${field.label}`"><el-option v-for="value in form.capabilities[field.field]" :key="value" :label="value" :value="value" /></el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="售价（积分 / 张）" min-width="160"><template #default="{ row, $index }"><el-form-item :prop="`prices.${$index}.sale_unit_price`" :rules="saleRules"><el-input v-model="row.sale_unit_price" :aria-label="`价目 ${$index + 1} 售价（积分 / 张）`" inputmode="decimal" maxlength="21" /></el-form-item></template></el-table-column>
+          <el-table-column label="成本 / 张" min-width="160"><template #default="{ row, $index }"><el-form-item :prop="`prices.${$index}.cost_unit_price`" :rules="costRules"><el-input v-model="row.cost_unit_price" :aria-label="`价目 ${$index + 1} 成本 / 张`" inputmode="decimal" maxlength="25" /></el-form-item></template></el-table-column>
+          <el-table-column label="操作" width="88" align="center" fixed="right"><template #default="{ $index }"><el-button :icon="Delete" class="icon-button" :aria-label="`删除价目 ${$index + 1}`" title="删除价目" @click="form.prices.splice($index, 1)" /></template></el-table-column>
+        </AppTable>
         <el-button :icon="Plus" @click="form.prices.push(emptyPrice())">添加价目</el-button>
       </el-form>
       <template #footer>

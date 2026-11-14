@@ -25,6 +25,8 @@ export const consoleNavigation = [
 
 export const adminNavigation = [
   { path: '/admin/users', title: '用户管理', icon: 'users' },
+  { path: '/admin/exceptions', title: '异常处理', icon: 'exceptions' },
+  { path: '/admin/audit', title: '操作审计', icon: 'audit' },
   { path: '/admin/providers', title: '供应商配置', icon: 'providers' },
   { path: '/admin/models', title: '模型与价格', icon: 'models' },
   { path: '/admin/settings', title: '系统设置', icon: 'settings' },
@@ -32,7 +34,10 @@ export const adminNavigation = [
 
 const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: (to, _from, savedPosition) => {
+    if (to.path === '/api-docs' && to.hash) return { el: to.hash, top: 120 }
+    return savedPosition ?? { top: 0 }
+  },
   routes: [
     {
       path: '/',
@@ -119,6 +124,16 @@ const router = createRouter({
           meta: { title: '用户管理' },
         },
         {
+          path: 'exceptions',
+          component: () => import('../views/admin/ExceptionsView.vue'),
+          meta: { title: '异常处理' },
+        },
+        {
+          path: 'audit',
+          component: () => import('../views/admin/AuditView.vue'),
+          meta: { title: '操作审计' },
+        },
+        {
           path: 'providers',
           component: () => import('../views/admin/ProvidersView.vue'),
           meta: { title: '供应商配置' },
@@ -148,9 +163,11 @@ router.beforeEach(async (to) => {
   if (auth.user && ['/login', '/register'].includes(to.path)) return '/console'
 })
 
-router.afterEach((to) => {
+router.afterEach((to, from) => {
   document.title = `${to.meta.title} · NodePass`
-  requestAnimationFrame(() => document.getElementById('main-content')?.focus())
+  if (to.path !== from.path) {
+    requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true }))
+  }
 })
 
 export default router

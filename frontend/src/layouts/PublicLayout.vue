@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Connection, Expand, Right, User, UserFilled } from '@element-plus/icons-vue'
+import { Expand, Right, User, UserFilled } from '@element-plus/icons-vue'
 import ContactSupport from '../components/ContactSupport.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 import { publicNavigation } from '../router'
@@ -21,7 +21,7 @@ watch(() => route.path, () => {
     <header class="public-header">
       <div class="public-header-inner">
         <RouterLink class="brand public-brand" to="/" aria-label="NodePass 首页">
-          <span class="brand-mark" aria-hidden="true"><el-icon :size="23"><Connection /></el-icon></span>
+          <span class="brand-mark" aria-hidden="true"><img src="/brand-mark.svg" alt="" width="20" height="20" /></span>
           <span>NodePass</span>
         </RouterLink>
         <nav class="public-navigation" aria-label="官网导航">
@@ -45,7 +45,11 @@ watch(() => route.path, () => {
       </div>
     </header>
     <main id="main-content" tabindex="-1" :class="['public-main', { 'public-home': route.path === '/' }]">
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" :key="route.path" />
+        </Transition>
+      </RouterView>
     </main>
     <footer class="public-footer">
       <div><strong>NodePass</strong><span>图片与视频 API</span></div>

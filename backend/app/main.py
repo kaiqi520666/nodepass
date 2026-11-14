@@ -3,12 +3,46 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app.api import account, admin, api_keys, openai, public
+from app.api import account, admin, admin_operations, api_keys, openai, public
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.errors import openai_error
+
+
+class WebRequestSecurity:
+    def __init__(self, app: ASGIApp, web_origins: list[str]):
+        self.app, self.web_origins = app, web_origins
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        if (
+            request.url.path.startswith("/api/")
+            and request.method not in {"GET", "HEAD", "OPTIONS"}
+            and request.headers.get("origin") not in self.web_origins
+        ):
+            response = JSONResponse(
+                {"detail": "请求来源不受信任，请从本站页面提交"}, status_code=403
+            )
+            await response(scope, receive, send)
+            return
+
+        async def secured_send(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["Referrer-Policy"] = "same-origin"
+                if request.url.path.startswith(("/api/", "/v1/")):
+                    headers["Cache-Control"] = "no-store"
+            await send(message)
+
+        await self.app(scope, receive, secured_send)
 
 
 def create_app() -> FastAPI:
@@ -21,20 +55,7 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.environment == "development" else None,
     )
 
-    @app.middleware("http")
-    async def web_request_security(request: Request, call_next):
-        if (
-            request.url.path.startswith("/api/")
-            and request.method not in {"GET", "HEAD", "OPTIONS"}
-            and request.headers.get("origin") not in settings.web_origins
-        ):
-            return JSONResponse({"detail": "请求来源不受信任，请从本站页面提交"}, status_code=403)
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "same-origin"
-        if request.url.path.startswith(("/api/", "/v1/")):
-            response.headers["Cache-Control"] = "no-store"
-        return response
+    app.add_middleware(WebRequestSecurity, web_origins=settings.web_origins)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -90,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(public.router)
     app.include_router(account.router)
     app.include_router(admin.router)
+    app.include_router(admin_operations.router)
     app.include_router(api_keys.router)
     app.include_router(openai.router)
     return app

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bell, Connection, Expand, Grid, Histogram, House, Key, List, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { Bell, Connection, Document, Expand, Grid, Histogram, House, Key, List, Setting, SwitchButton, UserFilled, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { errorMessage } from '../api/http'
 import { adminNavigation, consoleNavigation } from '../router'
@@ -15,7 +15,17 @@ const router = useRouter()
 const mobileOpen = ref(false)
 const announcementsOpen = ref(false)
 const health = ref<'loading' | 'ok' | 'error'>('loading')
-const icons = { dashboard: Histogram, models: Grid, tokens: Key, tasks: List, settings: Setting, users: UserFilled, providers: Connection }
+const icons = {
+  dashboard: Histogram,
+  models: Grid,
+  tokens: Key,
+  tasks: List,
+  settings: Setting,
+  users: UserFilled,
+  providers: Connection,
+  exceptions: Warning,
+  audit: Document,
+}
 watch(() => route.path, () => {
   mobileOpen.value = false
   announcementsOpen.value = false
@@ -40,7 +50,7 @@ async function logout() {
   <div class="app-shell console-shell">
     <aside class="sidebar desktop-sidebar">
       <RouterLink class="brand" to="/console" aria-label="NodePass 控制台">
-        <span class="brand-mark" aria-hidden="true"><el-icon :size="23"><Connection /></el-icon></span>
+        <span class="brand-mark" aria-hidden="true"><img src="/brand-mark.svg" alt="" width="20" height="20" /></span>
         <span>NodePass</span>
       </RouterLink>
       <div class="side-navigation">
@@ -103,7 +113,11 @@ async function logout() {
         </div>
       </header>
       <main id="main-content" tabindex="-1" class="main-content">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <Transition name="page" mode="out-in">
+            <component :is="Component" :key="route.path" />
+          </Transition>
+        </RouterView>
       </main>
     </div>
   </div>

@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { Check, CopyDocument, Delete, Edit, Plus, Refresh, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { http, errorMessage } from '../../api/http'
+import { copyText } from '../../utils/clipboard'
 import type { ApiKey } from '../../types'
 import AppTable from '../../components/AppTable.vue'
 
@@ -82,8 +83,7 @@ async function getSecret(id: number) {
 
 async function copySecret(key: ApiKey) {
   try {
-    await navigator.clipboard.writeText(await getSecret(key.id))
-    ElMessage.success('已复制 API Key')
+    await copyText(await getSecret(key.id), '已复制 API Key', '复制失败，请手动选择')
   } catch (cause) { ElMessage.error(errorMessage(cause)) }
 }
 
@@ -133,8 +133,7 @@ async function remove(key: ApiKey) {
 }
 
 async function copyVisibleSecret() {
-  try { await navigator.clipboard.writeText(secret.value); ElMessage.success('已复制 API Key') }
-  catch { ElMessage.error('复制失败，请手动选择') }
+  await copyText(secret.value, '已复制 API Key', '复制失败，请手动选择')
 }
 
 onMounted(load)
@@ -147,7 +146,7 @@ onMounted(load)
       <el-button type="primary" :icon="Plus" @click="openCreate">创建 Key</el-button>
       <el-tooltip content="刷新 API Key"><el-button :icon="Refresh" class="icon-button" :loading="loading" aria-label="刷新 API Key" @click="load" /></el-tooltip>
     </div>
-    <AppTable :data="keys" :loading="loading" empty-text="暂无 API Key">
+    <AppTable :data="keys" :loading="loading" empty-text="暂无 API Key" empty-hint="创建一个 API Key 后即可调用接口。">
       <el-table-column prop="name" label="名称" min-width="150" />
       <el-table-column label="密钥" min-width="260">
         <template #default="{ row }">
@@ -181,6 +180,27 @@ onMounted(load)
           </div>
         </template>
       </el-table-column>
+      <template #mobile="{ rows }">
+        <article v-for="row in rows" :key="row.id" class="mobile-card">
+          <header class="mobile-card-header">
+            <div class="mobile-card-title">
+              <strong>{{ row.name }}</strong>
+              <span><code>{{ row.key_prefix }}...</code></span>
+            </div>
+            <el-tag :type="keyStatus(row).type" effect="plain">{{ keyStatus(row).label }}</el-tag>
+          </header>
+          <dl class="mobile-card-grid">
+            <div><dt>创建时间</dt><dd>{{ dateTime(row.created_at) }}</dd></div>
+            <div><dt>过期时间</dt><dd>{{ dateTime(row.expires_at) }}</dd></div>
+          </dl>
+          <footer class="mobile-card-actions">
+            <el-button size="small" :icon="View" :aria-label="`查看 ${row.name}`" @click="viewSecret(row)">查看</el-button>
+            <el-button size="small" :icon="CopyDocument" :aria-label="`复制 ${row.name}`" @click="copySecret(row)">复制</el-button>
+            <el-button size="small" :icon="Edit" :aria-label="`编辑 ${row.name}`" @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain :icon="Delete" :aria-label="`删除 ${row.name}`" :loading="deleting === row.id" @click="remove(row)">删除</el-button>
+          </footer>
+        </article>
+      </template>
     </AppTable>
     <el-dialog v-model="createOpen" title="创建 API Key" width="520px" destroy-on-close>
       <el-form ref="form" :model="values" :rules="rules" label-position="top" @submit.prevent="create">

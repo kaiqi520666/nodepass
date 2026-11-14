@@ -1,13 +1,23 @@
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from app.api.dependencies import AdminUser, Database
+from app.core.money import money
 from app.core.security import password_hash
-from app.models import CreditAccount, CreditEntry, Model, Provider, SystemSetting, User
+from app.models import (
+    AdminAction,
+    CreditAccount,
+    CreditEntry,
+    Model,
+    Provider,
+    SystemSetting,
+    User,
+)
 from app.schemas import (
     AdminPasswordUpdate,
     CreditAdjustment,
@@ -17,6 +27,12 @@ from app.schemas import (
     UserSummary,
 )
 from app.schemas_catalog import ModelInput, ProviderInput, ProviderSummary
+from app.services.admin_operations import (
+    ensure_replay,
+    request_fingerprint,
+    snapshot_account,
+    write_admin_action,
+)
 from app.services.catalog_admin import (
     image_profiles,
     model_summary,
@@ -25,6 +41,7 @@ from app.services.catalog_admin import (
     save_provider,
 )
 from app.services.settings import oss_summary, save_oss_settings, test_oss_connection
+from app.services.video_catalog import video_profiles
 
 router = APIRouter(prefix="/api/admin", include_in_schema=False)
 
@@ -59,30 +76,65 @@ def adjust_user_credits(
     user = session.scalar(select(User).options(joinedload(User.account)).where(User.id == user_id))
     if user is None or user.account is None:
         raise HTTPException(404, "用户不存在")
-    amount = payload.amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    amount = money(payload.amount)
     if amount <= 0:
-        raise HTTPException(422, "积分必须大于 0.0000")
+        raise HTTPException(422, "积分必须大于 0.00000000")
+    request_id = payload.request_id or uuid4()
+    action = "user.credit_increase" if payload.direction == "increase" else "user.credit_decrease"
+    fingerprint = request_fingerprint(action, "user", str(user.id), amount, payload.reason)
+    existing = session.scalar(select(AdminAction).where(AdminAction.request_id == request_id))
+    if existing is not None:
+        ensure_replay(existing, admin.id, fingerprint)
+        return user
     account = session.scalar(
         select(CreditAccount).where(CreditAccount.user_id == user.id).with_for_update()
     )
     if account is None:
         raise HTTPException(404, "积分账户不存在")
+    before = snapshot_account(account)
     available_delta = amount if payload.direction == "increase" else -amount
     if payload.direction == "decrease" and account.available < amount:
         raise HTTPException(409, "可用积分不足")
     account.available += available_delta
-    session.add(
-        CreditEntry(
-            user_id=user.id,
-            entry_type="admin_credit" if payload.direction == "increase" else "admin_debit",
-            idempotency_key=f"admin:{admin.id}:user:{user.id}:{uuid4()}",
-            amount=amount,
-            available_delta=available_delta,
-            frozen_delta=Decimal("0.0000"),
-            description=payload.reason,
-        )
+    entry = CreditEntry(
+        user_id=user.id,
+        entry_type="admin_credit" if payload.direction == "increase" else "admin_debit",
+        idempotency_key=f"admin:{admin.id}:user:{user.id}:{request_id}",
+        amount=amount,
+        available_delta=available_delta,
+        frozen_delta=Decimal("0.00000000"),
+        description=payload.reason,
     )
-    session.commit()
+    session.add(entry)
+    session.flush()
+    after = snapshot_account(account)
+    try:
+        write_admin_action(
+            session,
+            actor_id=admin.id,
+            action=action,
+            target_type="user",
+            target_id=str(user.id),
+            request_id=request_id,
+            fingerprint=fingerprint,
+            reason=payload.reason,
+            amount=amount,
+            before=before,
+            after=after,
+            credit_entry_id=entry.id,
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.scalar(select(AdminAction).where(AdminAction.request_id == request_id))
+        if existing is not None:
+            ensure_replay(existing, admin.id, fingerprint)
+            user = session.scalar(
+                select(User).options(joinedload(User.account)).where(User.id == user_id)
+            )
+            if user is not None:
+                return user
+        raise
     session.refresh(user)
     return user
 
@@ -134,13 +186,15 @@ def list_managed_models(admin: AdminUser, session: Database):
         "data": [
             model_summary(row)
             for row in session.scalars(
-                select(Model)
-                .options(joinedload(Model.prices))
-                .where(Model.media_type == "image")
-                .order_by(Model.id.desc())
+                select(Model).options(joinedload(Model.prices)).order_by(Model.id.desc())
             ).unique()
         ]
     }
+
+
+@router.get("/video-options")
+def video_options(admin: AdminUser):
+    return {"data": video_profiles()}
 
 
 @router.post("/models", status_code=201)
