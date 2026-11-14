@@ -3,12 +3,21 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from app.api.dependencies import AdminUser, Database
 from app.core.money import money
 from app.core.security import password_hash
-from app.models import CreditAccount, CreditEntry, Model, Provider, SystemSetting, User
+from app.models import (
+    AdminAction,
+    CreditAccount,
+    CreditEntry,
+    Model,
+    Provider,
+    SystemSetting,
+    User,
+)
 from app.schemas import (
     AdminPasswordUpdate,
     CreditAdjustment,
@@ -18,6 +27,12 @@ from app.schemas import (
     UserSummary,
 )
 from app.schemas_catalog import ModelInput, ProviderInput, ProviderSummary
+from app.services.admin_operations import (
+    ensure_replay,
+    request_fingerprint,
+    snapshot_account,
+    write_admin_action,
+)
 from app.services.catalog_admin import (
     image_profiles,
     model_summary,
@@ -64,27 +79,62 @@ def adjust_user_credits(
     amount = money(payload.amount)
     if amount <= 0:
         raise HTTPException(422, "积分必须大于 0.00000000")
+    request_id = payload.request_id or uuid4()
+    action = "user.credit_increase" if payload.direction == "increase" else "user.credit_decrease"
+    fingerprint = request_fingerprint(action, "user", str(user.id), amount, payload.reason)
+    existing = session.scalar(select(AdminAction).where(AdminAction.request_id == request_id))
+    if existing is not None:
+        ensure_replay(existing, admin.id, fingerprint)
+        return user
     account = session.scalar(
         select(CreditAccount).where(CreditAccount.user_id == user.id).with_for_update()
     )
     if account is None:
         raise HTTPException(404, "积分账户不存在")
+    before = snapshot_account(account)
     available_delta = amount if payload.direction == "increase" else -amount
     if payload.direction == "decrease" and account.available < amount:
         raise HTTPException(409, "可用积分不足")
     account.available += available_delta
-    session.add(
-        CreditEntry(
-            user_id=user.id,
-            entry_type="admin_credit" if payload.direction == "increase" else "admin_debit",
-            idempotency_key=f"admin:{admin.id}:user:{user.id}:{uuid4()}",
-            amount=amount,
-            available_delta=available_delta,
-            frozen_delta=Decimal("0.00000000"),
-            description=payload.reason,
-        )
+    entry = CreditEntry(
+        user_id=user.id,
+        entry_type="admin_credit" if payload.direction == "increase" else "admin_debit",
+        idempotency_key=f"admin:{admin.id}:user:{user.id}:{request_id}",
+        amount=amount,
+        available_delta=available_delta,
+        frozen_delta=Decimal("0.00000000"),
+        description=payload.reason,
     )
-    session.commit()
+    session.add(entry)
+    session.flush()
+    after = snapshot_account(account)
+    try:
+        write_admin_action(
+            session,
+            actor_id=admin.id,
+            action=action,
+            target_type="user",
+            target_id=str(user.id),
+            request_id=request_id,
+            fingerprint=fingerprint,
+            reason=payload.reason,
+            amount=amount,
+            before=before,
+            after=after,
+            credit_entry_id=entry.id,
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.scalar(select(AdminAction).where(AdminAction.request_id == request_id))
+        if existing is not None:
+            ensure_replay(existing, admin.id, fingerprint)
+            user = session.scalar(
+                select(User).options(joinedload(User.account)).where(User.id == user_id)
+            )
+            if user is not None:
+                return user
+        raise
     session.refresh(user)
     return user
 

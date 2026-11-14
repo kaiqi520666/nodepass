@@ -2,6 +2,7 @@ import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
@@ -477,6 +478,94 @@ def test_concurrent_settlement_uses_snapshot_once(session, text_account, engine)
         session.get(CreditAccount, text_account[0]).available == Decimal("0.00000001") - CHARGE * 2
     )
     assert session.scalar(select(func.count()).select_from(CreditEntry)) == 2
+
+
+def test_late_usage_settles_after_mark_unknown(session, text_account):
+    call, _, _ = prepare_text_call(
+        session,
+        text_account[0],
+        ChatRequest(model="gpt-6.1-sol", messages=[{"role": "user", "content": "hi"}]),
+    )
+    finish_text_call(session, call.id, None, error="Upstream request failed.")
+    session.refresh(call)
+    assert call.status == "usage_unknown"
+
+    call.resolution = "manual_marked_unknown"
+    call.resolved_at = datetime.now(UTC)
+    call.resolved_by_user_id = text_account[0]
+    session.commit()
+
+    finish_text_call(session, call.id, TextUsage.parse(USAGE))
+    session.refresh(call)
+    assert call.status == "succeeded"
+    assert call.charge_amount == CHARGE
+    assert call.resolution is None
+    assert call.resolved_at is None
+    assert call.resolved_by_user_id is None
+    assert session.scalar(select(func.count()).select_from(CreditEntry)) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "resolution", "charge"),
+    [
+        ("settled_manually", "manual_charged", Decimal("0.00010000")),
+        ("closed_no_charge", "manual_closed_no_charge", Decimal("0.00000000")),
+    ],
+)
+def test_late_usage_after_manual_terminal_is_recorded_without_charge(
+    session, text_account, status, resolution, charge
+):
+    call, _, _ = prepare_text_call(
+        session,
+        text_account[0],
+        ChatRequest(model="gpt-6.1-sol", messages=[{"role": "user", "content": "hi"}]),
+    )
+    call.status = status
+    call.charge_amount = charge
+    call.resolution = resolution
+    call.resolved_by_user_id = text_account[0]
+    session.commit()
+    before = session.get(CreditAccount, text_account[0]).available
+
+    finish_text_call(session, call.id, TextUsage.parse(USAGE))
+    session.refresh(call)
+    assert call.status == status
+    assert call.charge_amount == charge
+    assert call.resolution == resolution
+    assert call.late_usage == TextUsage.parse(USAGE).as_dict()
+    assert call.late_usage_at is not None
+    assert session.get(CreditAccount, text_account[0]).available == before
+    assert session.scalar(select(func.count()).select_from(CreditEntry)) == 0
+
+
+def test_duplicate_terminal_usage_is_idempotent(session, text_account):
+    call, _, _ = prepare_text_call(
+        session,
+        text_account[0],
+        ChatRequest(model="gpt-6.1-sol", messages=[{"role": "user", "content": "hi"}]),
+    )
+    usage = TextUsage.parse(USAGE)
+    finish_text_call(session, call.id, usage)
+    finish_text_call(session, call.id, usage)
+    session.refresh(call)
+    assert call.status == "succeeded"
+    assert call.late_usage is None
+    assert session.scalar(select(func.count()).select_from(CreditEntry)) == 1
+
+
+def test_different_terminal_usage_is_recorded_without_second_charge(session, text_account):
+    call, _, _ = prepare_text_call(
+        session,
+        text_account[0],
+        ChatRequest(model="gpt-6.1-sol", messages=[{"role": "user", "content": "hi"}]),
+    )
+    finish_text_call(session, call.id, TextUsage.parse(USAGE))
+    different = TextUsage(1000, 600, 501, 300)
+    finish_text_call(session, call.id, different)
+    session.refresh(call)
+    assert call.status == "succeeded"
+    assert call.late_usage == different.as_dict()
+    assert session.scalar(select(func.count()).select_from(CreditEntry)) == 1
 
 
 def test_stream_close_drains_and_settles(session, text_account, engine):

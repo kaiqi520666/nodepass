@@ -7,7 +7,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app.api import account, admin, api_keys, openai, public
+from app.api import account, admin, admin_operations, api_keys, openai, public
 from app.core.config import get_settings
 from app.core.database import get_session_factory
 from app.core.errors import openai_error
@@ -111,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(public.router)
     app.include_router(account.router)
     app.include_router(admin.router)
+    app.include_router(admin_operations.router)
     app.include_router(api_keys.router)
     app.include_router(openai.router)
     return app

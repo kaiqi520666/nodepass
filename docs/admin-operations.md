@@ -586,7 +586,7 @@ GET /api/admin/audit-actions/{action_id}
 幂等规则：
 
 - `admin_actions.request_id` 唯一；
-- `request_fingerprint` 由动作、目标、金额和规范化原因生成；
+- `request_fingerprint` 由动作、目标、金额和规范化原因生成；任务释放金额由冻结金额决定，不进入请求指纹；文本人工扣费金额进入指纹；
 - 相同 `request_id` 且指纹一致时，返回第一次的结果；
 - 相同 `request_id` 但指纹不同返回 409；
 - 账务流水使用 `request_id` 派生唯一键；即使并发请求同时到达，也只产生一条流水。
@@ -667,6 +667,13 @@ GET /api/admin/audit-actions/{action_id}
 - CI 必须提供 PostgreSQL service，并执行 `pytest`、`alembic check`；
 - 并发、迟到用量、审计不可变和转存竞态测试必须在 CI 的 PostgreSQL 中运行，不能用 SQLite 或 mock 替代；
 - 本地通过 `NODEPASS_TEST_DATABASE_URL` 复现同一套测试。
+
+### 当前进度
+
+- 2026-11-15：CI + PostgreSQL 已接入，见 `.github/workflows/ci.yml` 和 `scripts/ci.sh`；
+- 2026-11-15：`admin_actions`、审计触发器、`resolution`/`late_usage` 字段、文本新状态和转存/迟到用量状态机已实现；
+- 2026-11-15：动作服务、异常列表、审计查询和管理员调账审计接口已实现；
+- 异常处理页面和操作审计页面尚未实现。
 
 ### 后端
 

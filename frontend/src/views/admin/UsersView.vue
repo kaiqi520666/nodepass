@@ -16,6 +16,7 @@ const error = ref('')
 const creditDialog = ref(false)
 const creditSaving = ref(false)
 const creditUser = ref<User | null>(null)
+const creditRequestId = ref('')
 const passwordDialog = ref(false)
 const passwordSaving = ref(false)
 const passwordUser = ref<User | null>(null)
@@ -35,6 +36,7 @@ async function load() {
 
 function openCredit(user: User) {
   creditUser.value = user
+  creditRequestId.value = crypto.randomUUID()
   credit.direction = 'increase'
   credit.amount = ''
   credit.reason = ''
@@ -56,6 +58,7 @@ async function submitCredit() {
       direction: credit.direction,
       amount: credit.amount,
       reason: credit.reason.trim(),
+      request_id: creditRequestId.value,
     })
     const index = users.value.findIndex(user => user.id === response.data.id)
     if (index >= 0) users.value[index] = response.data

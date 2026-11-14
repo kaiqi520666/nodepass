@@ -139,6 +139,8 @@ def test_success_real_adapter_mapping_transfer_settlement_and_repeat_queries(
     assert task.next_run_at > datetime.now(UTC) + timedelta(seconds=55)
     assert task_execution.process_next_task(session) is False
     task_execution.process_task(session, task)
+    assert task.status == "transferring" and task.billing_status == "held"
+    task_execution.process_task(session, task)
     body = query(client, key, task)
     assert body["status"] == "succeeded" and body["completed"] is not None
     assert len(body["data"]) == 1 and body["data"][0]["url"].startswith(
@@ -265,6 +267,8 @@ def test_snapshot_times_no_poll_cap_and_late_success(client, session, video_envi
     task_execution.process_task(session, task)
     assert (task.next_run_at - datetime.now(UTC)).total_seconds() > 7190
     task_execution.process_task(session, task)
+    if task.status == "transferring":
+        task_execution.process_task(session, task)
     assert all(call[3] == 777 for call in calls)
     assert query(client, key, task)["timed_out"]
     assert task.status == "succeeded" and task.timed_out_at is not None
@@ -283,6 +287,8 @@ def test_timeout_is_historical_and_catches_unknown_submissions(client, session, 
     session.commit()
     events.append({"id": "fake", "status": "SUCCEEDED", "object": "https://example.com/a.mp4"})
     task_execution.process_task(session, task)
+    if task.status == "transferring":
+        task_execution.process_task(session, task)
     assert not query(client, key, task)["timed_out"]
     assert not task.has_timed_out(datetime.now(UTC) + timedelta(days=10))
 

@@ -38,6 +38,13 @@ def _poll_at(task: Task, now: datetime) -> datetime:
     return now + timedelta(seconds=seconds)
 
 
+def _clear_transient_resolution(task: Task) -> None:
+    if task.resolution in {"manual_requeued", "manual_retry_transfer"}:
+        task.resolution = None
+        task.resolved_at = None
+        task.resolved_by_user_id = None
+
+
 def _record_error(task: Task, message: str, now: datetime, *, review: bool = False) -> None:
     task.error_code = "provider_error"
     task.error_message = message[:500]
@@ -63,6 +70,7 @@ def _release(session: Session, task_id: int, message: str) -> None:
     task.error_code = "provider_rejected"
     task.error_message = message[:500]
     task.completed_at = datetime.now(UTC)
+    _clear_transient_resolution(task)
     if task.has_timed_out(task.completed_at) and task.timed_out_at is None:
         task.timed_out_at = task.completed_at
     task.next_run_at = None
@@ -114,6 +122,7 @@ def _settle(
     task.review_required = False
     task.result_snapshot = []
     task.next_run_at = None
+    _clear_transient_resolution(task)
     session.add(
         CreditEntry(
             user_id=task.user_id,
@@ -130,6 +139,8 @@ def _settle(
 
 
 def _transfer_and_settle(session: Session, task: Task) -> None:
+    if task.billing_status != "held":
+        return
     outputs = tuple(GenerationOutput(**item) for item in task.result_snapshot)
     existing = session.scalars(
         select(TaskAsset)
@@ -242,7 +253,7 @@ def process_task(session: Session, task: Task) -> None:
         task.result_snapshot = [asdict(output) for output in result.outputs]
         task.next_run_at = now
         session.commit()
-        process_task(session, task)
+        # Transfer on the next worker turn so the task row lock covers the upload.
         return
     task.status = "pending" if result.state == "pending" else "processing"
     task.next_run_at = _poll_at(task, now)

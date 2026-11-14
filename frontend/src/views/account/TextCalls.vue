@@ -9,7 +9,7 @@ import AppTable from '../../components/AppTable.vue'
 type TextCall = {
   id: string
   model: string
-  status: 'processing' | 'succeeded' | 'failed' | 'usage_unknown'
+  status: 'processing' | 'succeeded' | 'failed' | 'usage_unknown' | 'settled_manually' | 'closed_no_charge'
   created: number
   completed: number | null
   duration_ms: number
@@ -41,6 +41,8 @@ const statusOptions = {
   succeeded: { label: '已完成', type: 'success' },
   failed: { label: '失败', type: 'danger' },
   usage_unknown: { label: '用量待核实', type: 'warning' },
+  settled_manually: { label: '人工已结算', type: 'success' },
+  closed_no_charge: { label: '已关闭未扣费', type: 'info' },
 } as const
 const usageRows = computed(() => {
   if (!selected.value) return []

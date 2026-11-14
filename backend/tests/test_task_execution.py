@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from test_generations import auth_headers, prepare_user
 
 from app.models import Asset, CreditAccount, CreditEntry, Task, TaskAsset
 from app.providers.base import GenerationOutput, GenerationResult
-from app.services.task_execution import process_task
+from app.services.task_execution import _transfer_and_settle, process_task
 
 
 class FakeAdapter:
@@ -105,6 +106,12 @@ def test_documented_image_flow(client, session, monkeypatch, outcome):
     process_task(session, stored)
     session.expire_all()
     stored = session.scalar(select(Task).where(Task.task_id == submitted["id"]))
+    if outcome == "succeeded":
+        assert stored.status == "transferring"
+        assert session.scalar(select(Asset)) is None
+        process_task(session, stored)
+        session.expire_all()
+        stored = session.scalar(select(Task).where(Task.task_id == submitted["id"]))
     account = session.get(CreditAccount, user["id"])
     result = client.get(path, headers=headers)
     assert result.status_code == 200
@@ -139,3 +146,32 @@ def test_documented_image_flow(client, session, monkeypatch, outcome):
     stats = client.get("/api/account/dashboard").json()
     assert stats["requests"] == 1
     assert stats["consumed"] == ("1.23000000" if outcome == "succeeded" else "0.00000000")
+
+
+def test_transfer_guard_skips_released_task(client, session, monkeypatch):
+    key, _ = prepare_user(client, session)
+    _, model, _ = add_model(session)
+    response = client.post(
+        "/v1/images/generations",
+        headers=auth_headers(key),
+        json={"model": model.public_id, "prompt": "test"},
+    )
+    assert response.status_code == 202
+    task = session.scalar(select(Task).where(Task.task_id == UUID(response.json()["id"])))
+    assert task is not None
+    task.status = "transferring"
+    task.billing_status = "released"
+    task.result_snapshot = [{"url": "https://supplier.invalid/result.png"}]
+    session.commit()
+
+    uploaded = False
+
+    def upload(*_args, **_kwargs):
+        nonlocal uploaded
+        uploaded = True
+        raise AssertionError("upload must not run after release")
+
+    monkeypatch.setattr("app.services.task_execution.upload_result", upload)
+    _transfer_and_settle(session, task)
+    assert uploaded is False
+    assert task.billing_status == "released"

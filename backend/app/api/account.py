@@ -156,7 +156,17 @@ def list_text_calls(
     limit: int = Query(default=20, ge=1, le=100),
     query: str = "",
     model: str | None = None,
-    status: Literal["processing", "succeeded", "failed", "usage_unknown"] | None = None,
+    status: (
+        Literal[
+            "processing",
+            "succeeded",
+            "failed",
+            "usage_unknown",
+            "settled_manually",
+            "closed_no_charge",
+        ]
+        | None
+    ) = None,
     created_from: int | None = Query(default=None, ge=0),
     created_to: int | None = Query(default=None, ge=0),
 ):

@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal, localcontext
 from uuid import UUID
@@ -12,6 +13,8 @@ from app.models import CreditAccount, CreditEntry, Model, Provider, TextCall
 from app.providers.openai_text import ResponsesClient, TextUsage, responses_request
 from app.schemas_catalog import ProviderConfig, TokenPriceInput
 from app.schemas_text import ChatRequest, ResponsesRequest
+
+logger = logging.getLogger(__name__)
 
 
 def prepare_text_call(session: Session, user_id: int, payload: ChatRequest | ResponsesRequest):
@@ -89,6 +92,53 @@ def token_amounts(usage: TextUsage, price: dict) -> tuple[Decimal, Decimal]:
         )
 
 
+def _clear_transient_resolution(call: TextCall) -> None:
+    if call.resolution == "manual_marked_unknown":
+        call.resolution = None
+        call.resolved_at = None
+        call.resolved_by_user_id = None
+
+
+def _record_late_usage(call: TextCall, usage: TextUsage) -> None:
+    call.late_usage = usage.as_dict()
+    call.late_usage_at = datetime.now(UTC)
+    logger.warning("Late text usage for call %s in status %s", call.id, call.status)
+
+
+def _apply_usage(
+    session: Session,
+    call: TextCall,
+    usage: TextUsage,
+    error: str | None,
+    now: datetime,
+) -> None:
+    charge, cost = token_amounts(usage, call.price_snapshot)
+    account = session.scalar(
+        select(CreditAccount)
+        .where(CreditAccount.user_id == call.user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if account is None:
+        raise RuntimeError("积分账户不存在")
+    account.available -= charge
+    call.usage, call.charge_amount, call.cost_amount = usage.as_dict(), charge, cost
+    call.status = "failed" if error else "succeeded"
+    call.error_message = error
+    call.completed_at = now
+    session.add(
+        CreditEntry(
+            user_id=call.user_id,
+            entry_type="text_charge",
+            idempotency_key=f"text:{call.id}:charge",
+            amount=charge,
+            available_delta=-charge,
+            frozen_delta=Decimal(0),
+            description=f"文本调用：{call.price_snapshot['public_id']}",
+        )
+    )
+
+
 def finish_text_call(
     session: Session,
     call_id: UUID,
@@ -103,31 +153,36 @@ def finish_text_call(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if call.status != "processing":
+    if call is None:
         return
-    if usage is None:
-        call.status = "failed" if rejected else "usage_unknown"
-    else:
-        charge, cost = token_amounts(usage, call.price_snapshot)
-        account = session.scalar(
-            select(CreditAccount)
-            .where(CreditAccount.user_id == call.user_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        account.available -= charge
-        call.usage, call.charge_amount, call.cost_amount = usage.as_dict(), charge, cost
-        call.status = "failed" if error else "succeeded"
-        session.add(
-            CreditEntry(
-                user_id=call.user_id,
-                entry_type="text_charge",
-                idempotency_key=f"text:{call.id}:charge",
-                amount=charge,
-                available_delta=-charge,
-                frozen_delta=Decimal(0),
-                description=f"文本调用：{call.price_snapshot['public_id']}",
-            )
-        )
-    call.error_message, call.completed_at = error, datetime.now(UTC)
-    session.commit()
+    now = datetime.now(UTC)
+
+    if call.status == "processing":
+        if usage is None:
+            call.status = "failed" if rejected else "usage_unknown"
+            call.error_message = error
+            call.completed_at = now
+        else:
+            _apply_usage(session, call, usage, error, now)
+        session.commit()
+        return
+
+    if call.status == "usage_unknown":
+        if usage is None:
+            return
+        _apply_usage(session, call, usage, error, now)
+        _clear_transient_resolution(call)
+        session.commit()
+        return
+
+    if call.status in {"settled_manually", "closed_no_charge"}:
+        if usage is not None:
+            _record_late_usage(call, usage)
+            session.commit()
+        return
+
+    if call.status in {"succeeded", "failed"}:
+        if usage is not None and call.usage != usage.as_dict():
+            _record_late_usage(call, usage)
+            session.commit()
+        return

@@ -194,10 +194,10 @@ onMounted(load)
             <div><dt>过期时间</dt><dd>{{ dateTime(row.expires_at) }}</dd></div>
           </dl>
           <footer class="mobile-card-actions">
-            <el-button size="small" :icon="View" @click="viewSecret(row)">查看</el-button>
-            <el-button size="small" :icon="CopyDocument" @click="copySecret(row)">复制</el-button>
-            <el-button size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" plain :icon="Delete" :loading="deleting === row.id" @click="remove(row)">删除</el-button>
+            <el-button size="small" :icon="View" :aria-label="`查看 ${row.name}`" @click="viewSecret(row)">查看</el-button>
+            <el-button size="small" :icon="CopyDocument" :aria-label="`复制 ${row.name}`" @click="copySecret(row)">复制</el-button>
+            <el-button size="small" :icon="Edit" :aria-label="`编辑 ${row.name}`" @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain :icon="Delete" :aria-label="`删除 ${row.name}`" :loading="deleting === row.id" @click="remove(row)">删除</el-button>
           </footer>
         </article>
       </template>

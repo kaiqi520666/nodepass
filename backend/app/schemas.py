@@ -59,7 +59,14 @@ class DashboardSummary(BaseModel):
 class TextCallSummary(BaseModel):
     id: UUID
     model: str
-    status: Literal["processing", "succeeded", "failed", "usage_unknown"]
+    status: Literal[
+        "processing",
+        "succeeded",
+        "failed",
+        "usage_unknown",
+        "settled_manually",
+        "closed_no_charge",
+    ]
     created: int
     completed: int | None
     duration_ms: int
@@ -172,6 +179,7 @@ class CreditAdjustment(BaseModel):
     direction: Literal["increase", "decrease"]
     amount: Decimal = Field(gt=0, lt=Decimal("1e16"), allow_inf_nan=False)
     reason: str = Field(min_length=1, max_length=240)
+    request_id: UUID | None = None
 
 
 class AdminPasswordUpdate(BaseModel):

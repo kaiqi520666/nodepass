@@ -39,7 +39,18 @@ class Task(Timestamps, Base):
         CheckConstraint(
             "frozen_amount >= 0 AND frozen_amount < 'Infinity'::numeric", name="frozen"
         ),
+        CheckConstraint(
+            "resolution IS NULL OR resolution IN "
+            "('manual_requeued', 'manual_retry_transfer', 'manual_released')",
+            name="resolution",
+        ),
         Index("ix_tasks_status_next_run_at", "status", "next_run_at"),
+        Index(
+            "ix_tasks_review_required_status_created_at",
+            "review_required",
+            "status",
+            "created_at",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -78,6 +89,9 @@ class Task(Timestamps, Base):
     review_required: Mapped[bool] = mapped_column(server_default="false")
     error_code: Mapped[str | None] = mapped_column(String(80))
     error_message: Mapped[str | None] = mapped_column(Text)
+    resolution: Mapped[str | None] = mapped_column(String(32))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     def has_timed_out(self, now: datetime) -> bool:
         end = self.completed_at or now

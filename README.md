@@ -118,6 +118,28 @@ pnpm test:e2e
 
 后端测试同时使用锁定版本的 OpenAI Python SDK 检查模型列表读取和认证错误，不调用 OpenAI 或上游服务。浏览器测试需要已启动后端，可自动启动或复用前端；覆盖公开目录、兼容接口文档与代理、Key 创建及停用交互、错误恢复、登录表单、权限跳转、三态主题和手机导航。不会在开发库注册演示账号或添加模型，Key 界面测试使用明确的 fixture。截图与跟踪位于已忽略的 `frontend/test-results/`。
 
+### CI
+
+`.github/workflows/ci.yml` 在 push 到 `main`、Pull Request 和手动触发时运行：
+
+- `Backend`：PostgreSQL 17 service，执行 Ruff、格式检查、pytest 和 `alembic check`；
+- `Frontend`：Node.js 22 + pnpm，执行 `pnpm build`；
+- `End-to-end`：启动迁移后的后端，安装 Chromium 并执行 Playwright。
+
+CI 内的会话密钥和 Fernet 主密钥在运行时生成，不保存到仓库。后端测试使用 `NODEPASS_TEST_DATABASE_URL` 创建临时库；`alembic check` 使用独立 CI 库。
+
+本地复现同一套检查：
+
+```bash
+./scripts/ci.sh
+```
+
+脚本会启动 Compose 中的 PostgreSQL，并按顺序执行后端、前端和 e2e。e2e 阶段需要 8000 端口空闲；如果已经运行 `app.dev`，请先停止或使用 `RUN_E2E=0`。只跑后端与构建时：
+
+```bash
+RUN_E2E=0 ./scripts/ci.sh
+```
+
 ## 部署边界
 
 当前 Compose 只用于本地开发数据库，并非生产部署方案；示例数据库密码只用于绑定回环地址的本地容器。生产环境须使用独立凭证、HTTPS、`NODEPASS_ENVIRONMENT=production`、`NODEPASS_COOKIE_SECURE=true` 和真实的受信任页面来源。
