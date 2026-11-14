@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { CopyDocument } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { copyText } from '../../utils/clipboard'
 
 const props = defineProps<{ title: string; code: string; language?: string }>()
 
 async function copy() {
-  try { await navigator.clipboard.writeText(props.code); ElMessage.success('已复制') }
-  catch { ElMessage.error('复制失败，请手动选择') }
+  await copyText(props.code, '已复制', '复制失败，请手动选择')
 }
 </script>
 

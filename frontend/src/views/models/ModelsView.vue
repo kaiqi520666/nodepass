@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { Box, ChatDotRound, CopyDocument, Grid, Picture, Refresh, Search, VideoCamera, View } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { http, errorMessage } from '../../api/http'
+import { copyText } from '../../utils/clipboard'
 import type { PublicModel, PublicPrice } from '../../types'
 import AppTable from '../../components/AppTable.vue'
 import AppPagination from '../../components/AppPagination.vue'
@@ -54,19 +54,28 @@ function money(value: string) {
   return `${integer}.${fraction.padEnd(8, '0')}`
 }
 
+function shortMoney(value: string) {
+  const [integer, fraction = ''] = money(value).split('.')
+  let cents = BigInt(integer) * 10000n + BigInt(fraction.slice(0, 4))
+  if (fraction[4]! >= '5') cents += 1n
+  if (cents === 0n && /[1-9]/.test(fraction)) return '<0.0001'
+  const decimals = (cents % 10000n).toString().padStart(4, '0').replace(/0+$/, '')
+  return `${cents / 10000n}.${decimals.padEnd(2, '0')}`
+}
+
 function variantLabel(variant: Record<string, string>) {
   return Object.entries(variant).map(([key, value]) => `${key}: ${value}`).join(' · ') || '默认'
 }
 
 function priceGroups(prices: PublicPrice[]) {
-  const groups = new Map<string, { amount: string; unit: PublicPrice['unit']; variants: Record<string, string>[] }>()
+  const groups = new Map<string, { amount: string; fullAmount: string; unit: PublicPrice['unit']; variants: Record<string, string>[] }>()
   for (const price of prices) {
-    const amount = money(price.unit_price)
+    const fullAmount = money(price.unit_price)
     const dimensions = Object.entries(price.variant).filter(([key]) => key !== 'quality').sort()
-    const key = JSON.stringify([price.unit, amount, dimensions])
+    const key = JSON.stringify([price.unit, fullAmount, dimensions])
     const group = groups.get(key)
     if (group) group.variants.push(price.variant)
-    else groups.set(key, { amount, unit: price.unit, variants: [price.variant] })
+    else groups.set(key, { amount: shortMoney(price.unit_price), fullAmount, unit: price.unit, variants: [price.variant] })
   }
   return [...groups.values()].map(group => {
     const detail = group.variants.map(variantLabel).join('；')
@@ -165,8 +174,7 @@ async function load() {
 }
 
 async function copy(value: string) {
-  try { await navigator.clipboard.writeText(value); ElMessage.success('已复制模型 ID') }
-  catch { ElMessage.error('复制失败，请手动选择模型 ID') }
+  await copyText(value, '已复制模型 ID', '复制失败，请手动选择模型 ID')
 }
 
 onMounted(load)
@@ -205,7 +213,10 @@ watch(filtered, () => { catalogPage.value = 1 })
       <el-result v-if="error" icon="warning" title="模型加载失败" :sub-title="error">
         <template #extra><el-button :icon="Refresh" @click="load">重试</el-button></template>
       </el-result>
-      <div v-else v-loading="loading" class="catalog-list">
+      <div v-else-if="loading && !models.length" class="catalog-list" aria-busy="true">
+        <div v-for="index in 4" :key="index" class="catalog-model-card catalog-skeleton-card"><el-skeleton :rows="4" animated /></div>
+      </div>
+      <div v-else v-loading="loading && models.length > 0" class="catalog-list">
         <article v-for="row in displayedRows" :key="row.id" class="catalog-model-card">
           <header class="catalog-model-card-header">
             <div class="catalog-model-heading">
@@ -228,7 +239,7 @@ watch(filtered, () => { catalogPage.value = 1 })
               <tbody>
                 <tr v-for="(group, index) in row.priceGroups" :key="index" class="catalog-price-card">
                   <td v-for="dimension in row.priceDimensions" :key="dimension" class="catalog-price-condition">{{ group.values[dimension] }}</td>
-                  <td class="catalog-price-amount"><strong class="numeric">{{ group.amount }}</strong><span class="price-unit"> / {{ units[group.unit as keyof typeof units] }}</span></td>
+                  <td class="catalog-price-amount"><strong class="numeric" :title="`${group.fullAmount} 积分`" :aria-label="`${group.fullAmount} 积分`">{{ group.amount }}</strong><span class="price-unit"> / {{ units[group.unit as keyof typeof units] }}</span></td>
                 </tr>
               </tbody>
             </table>
@@ -238,7 +249,7 @@ watch(filtered, () => { catalogPage.value = 1 })
         <div v-if="!filtered.length" class="table-empty catalog-empty">
           <el-icon :size="32" aria-hidden="true"><Box /></el-icon>
           <h2>{{ models.length ? '没有匹配的模型' : '暂无上架模型' }}</h2>
-          <p v-if="models.length">请调整搜索条件</p>
+          <p>{{ models.length ? '调整搜索或筛选条件后重试。' : '管理员上架模型后，这里会显示模型与价格。' }}</p>
         </div>
       </div>
       <AppPagination

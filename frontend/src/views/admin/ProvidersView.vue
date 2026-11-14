@@ -85,7 +85,7 @@ onMounted(load)
       </div>
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon role="alert" />
-    <AppTable :data="providers" :loading="loading" empty-text="暂无供应商">
+    <AppTable :data="providers" :loading="loading" empty-text="暂无供应商" empty-hint="添加供应商后即可配置模型。">
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column prop="base_url" label="接口地址" min-width="260" />
         <el-table-column label="密钥" width="100"><template #default="{ row }"><el-tag :type="row.has_credentials ? 'success' : 'warning'" effect="plain">{{ row.has_credentials ? '已配置' : '未配置' }}</el-tag></template></el-table-column>

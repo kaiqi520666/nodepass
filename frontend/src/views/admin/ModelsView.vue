@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, toRaw } from 'vue'
 import { ArrowDown, ArrowUp, Check, Close, CopyDocument, Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { http, errorMessage } from '../../api/http'
+import { copyText } from '../../utils/clipboard'
 import type { ImageCapabilities, ImageProfile, ManagedCatalogModel, ManagedModel, ManagedTextModel, ManagedVideoModel, ModelPrice, Provider } from '../../types/catalog'
 import AppTable from '../../components/AppTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
@@ -106,10 +107,7 @@ function togglePrices(id: number) {
 }
 
 async function copyId(id: string) {
-  try {
-    await navigator.clipboard.writeText(id)
-    ElMessage.success('模型 ID 已复制')
-  } catch { ElMessage.error('复制失败，请手动复制模型 ID') }
+  await copyText(id, '模型 ID 已复制', '复制失败，请手动复制模型 ID')
 }
 const rules: FormRules = {
   public_id: [
@@ -231,7 +229,7 @@ onMounted(load)
         <el-option label="已上架" value="active" /><el-option label="已下架" value="inactive" />
       </el-select>
     </div>
-    <AppTable class="managed-model-table" :data="filtered" :loading="loading" row-key="id" :expand-row-keys="expandedRows" :empty-text="hasFilters ? '没有匹配的模型' : '暂无模型'" @expand-change="(_row: ManagedCatalogModel, expanded: ManagedCatalogModel[]) => expandedRows = expanded.map(item => item.id)">
+    <AppTable class="managed-model-table" :data="filtered" :loading="loading" row-key="id" :expand-row-keys="expandedRows" :empty-text="hasFilters ? '没有匹配的模型' : '暂无模型'" :empty-hint="hasFilters ? '调整搜索或筛选条件后重试。' : '先配置供应商，再添加模型和价格。'" @expand-change="(_row: ManagedCatalogModel, expanded: ManagedCatalogModel[]) => expandedRows = expanded.map(item => item.id)">
         <el-table-column type="expand" width="44">
           <template #default="{ row }">
             <div :id="`model-prices-${row.id}`" class="model-price-details">

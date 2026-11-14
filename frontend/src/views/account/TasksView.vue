@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { CopyDocument, Download, Refresh, Search, View } from '@element-plus/icons-vue'
-import { ElImageViewer, ElMessage, ElTabPane, ElTabs } from 'element-plus'
+import { ElImageViewer, ElTabPane, ElTabs } from 'element-plus'
 import { errorMessage, http } from '../../api/http'
+import { copyText } from '../../utils/clipboard'
 import PageHeader from '../../components/PageHeader.vue'
 import AppTable from '../../components/AppTable.vue'
 import TextCalls from './TextCalls.vue'
@@ -150,12 +151,7 @@ function showVideo(task: Task, index: number) {
 }
 
 async function copyTaskId(id: string) {
-  try {
-    await navigator.clipboard.writeText(id)
-    ElMessage.success('任务 ID 已复制')
-  } catch {
-    ElMessage.error('复制失败，请手动复制任务 ID')
-  }
+  await copyText(id, '任务 ID 已复制', '复制失败，请手动复制任务 ID')
 }
 
 function resetFilters() {
@@ -210,7 +206,7 @@ onMounted(load)
           />
           <el-button @click="resetFilters">重置</el-button>
         </div>
-        <AppTable :data="filteredTasks" :loading="loading" empty-text="暂无匹配的任务">
+        <AppTable :data="filteredTasks" :loading="loading" empty-text="暂无匹配的任务" empty-hint="调整筛选条件后重试；生成任务通过开发者接口提交。">
           <el-table-column label="任务信息" min-width="300">
             <template #default="{ row }">
               <div class="task-id">

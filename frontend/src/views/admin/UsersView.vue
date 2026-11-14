@@ -93,7 +93,7 @@ onMounted(load)
       <el-button :icon="Refresh" class="icon-button" :loading="loading" aria-label="刷新用户" @click="load" />
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon role="alert" />
-    <AppTable v-model:page="page" v-model:page-size="pageSize" :data="users" :total="total" :loading="loading" empty-text="暂无用户" @change="load">
+    <AppTable v-model:page="page" v-model:page-size="pageSize" :data="users" :total="total" :loading="loading" empty-text="暂无用户" empty-hint="注册用户会显示在这里。" @change="load">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="email" label="邮箱" min-width="230" />
       <el-table-column label="身份" width="110"><template #default="{ row }">{{ row.is_admin ? '管理员' : '普通用户' }}</template></el-table-column>

@@ -43,7 +43,8 @@ for (const path of ['/models', '/console/models']) {
     const image = rows.filter({ has: page.getByText('gpt-image-2', { exact: true }) })
     await expect(image.locator('code')).toHaveCount(1)
     await expect(image.locator('.catalog-price-card')).toHaveCount(4)
-    await expect(image).toContainText('0.0550')
+    await expect(image).toContainText('0.055')
+    await expect(image.locator('.catalog-price-amount strong').nth(1)).toHaveAttribute('title', '0.05500000 积分')
     await expect(image).not.toContainText('图片')
     await expect(page.getByText('gpt-image-2.6', { exact: true })).toHaveCount(0)
 
@@ -64,6 +65,7 @@ for (const path of ['/models', '/console/models']) {
     await expect(dialog.getByText('16:9', { exact: true })).toBeVisible()
     await expect(dialog.getByText('9 张', { exact: true })).toBeVisible()
     await expect(dialog.locator('.catalog-detail-prices .el-table__row')).toHaveCount(40)
+    await expect(dialog.getByText('0.02500000', { exact: true }).first()).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await dialog.locator('.el-dialog__headerbtn').click()
 

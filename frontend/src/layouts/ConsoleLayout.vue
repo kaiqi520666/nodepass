@@ -40,7 +40,7 @@ async function logout() {
   <div class="app-shell console-shell">
     <aside class="sidebar desktop-sidebar">
       <RouterLink class="brand" to="/console" aria-label="NodePass 控制台">
-        <span class="brand-mark" aria-hidden="true"><el-icon :size="23"><Connection /></el-icon></span>
+        <span class="brand-mark" aria-hidden="true"><img src="/brand-mark.svg" alt="" width="20" height="20" /></span>
         <span>NodePass</span>
       </RouterLink>
       <div class="side-navigation">

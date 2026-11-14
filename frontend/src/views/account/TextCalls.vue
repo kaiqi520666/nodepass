@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { CopyDocument, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { errorMessage, http } from '../../api/http'
+import { copyText } from '../../utils/clipboard'
 import AppTable from '../../components/AppTable.vue'
 
 type TextCall = {
@@ -66,12 +67,7 @@ function tokenCount(count: number | null | undefined) {
 }
 
 async function copyId(id: string) {
-  try {
-    await navigator.clipboard.writeText(id)
-    ElMessage.success('调用 ID 已复制')
-  } catch {
-    ElMessage.error('复制失败，请手动复制调用 ID')
-  }
+  await copyText(id, '调用 ID 已复制', '复制失败，请手动复制调用 ID')
 }
 
 async function load() {
@@ -149,7 +145,7 @@ onMounted(load)
     </form>
     <AppTable
       v-model:page="page" v-model:page-size="pageSize" :data="calls" :total="total"
-      :loading="loading" empty-text="暂无匹配的文本调用" @change="load"
+      :loading="loading" empty-text="暂无匹配的文本调用" empty-hint="调整筛选条件后重试。" @change="load"
     >
       <el-table-column label="调用信息" min-width="310">
         <template #default="{ row }">

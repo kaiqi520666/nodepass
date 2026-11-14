@@ -263,9 +263,9 @@ test('API Key creation, one-time display and revocation with response fixtures',
 test('public homepage, image placeholders and navigation use the website layout', async ({ page }, testInfo) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'NodePass', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /一个 Key/ })).toBeVisible()
   await expect(page.locator('.console-shell')).toHaveCount(0)
-  await expect(page.getByRole('img', { name: '首页展示图占位' })).toBeVisible()
+  await expect(page.locator('.home-terminal')).toBeVisible()
   await expect(page.getByRole('img', { name: '图片效果展示占位' })).toBeVisible()
   await expect(page.getByRole('img', { name: '视频效果展示占位' })).toBeVisible()
   await expect(page.getByText('服务正常', { exact: true })).toHaveCount(0)
@@ -320,7 +320,18 @@ test('signed-in visitors keep the website layout and enter the five-menu console
   await page.route('**/api/account/me', route => route.fulfill({ json: user }))
   await page.route('**/api/account/tasks', route => route.fulfill({ json: { data: [] } }))
   await page.route('**/api/account/dashboard', route => route.fulfill({
-    json: { available: '12.34560000', consumed: '3.60035201', requests: 7, today_consumed: '1.80035201' },
+    json: {
+      available: '12.34560000', consumed: '3.60035201', requests: 7, today_consumed: '1.80035201',
+      trend: [
+        { date: '2026-11-09', consumed: '0.10000000' },
+        { date: '2026-11-10', consumed: '0.20000000' },
+        { date: '2026-11-11', consumed: '0.00000000' },
+        { date: '2026-11-12', consumed: '0.40000000' },
+        { date: '2026-11-13', consumed: '0.50000000' },
+        { date: '2026-11-14', consumed: '0.60000000' },
+        { date: '2026-11-15', consumed: '1.80035201' },
+      ],
+    },
   }))
   await page.goto('/')
   const account = page.locator('.public-header').getByRole('link', { name: user.email.split('@')[0], exact: true })

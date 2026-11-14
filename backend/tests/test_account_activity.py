@@ -124,12 +124,17 @@ def test_text_log_ownership_session_auth_and_no_delete(client, call_log):
     ).raise_for_status()
     assert client.get(path).status_code == 404
     assert client.get("/api/account/text-calls").json() == {"data": [], "total": 0, "models": []}
-    assert client.get("/api/account/dashboard").json() == {
+    dashboard = client.get("/api/account/dashboard").json()
+    assert {
+        key: dashboard[key] for key in ("available", "consumed", "requests", "today_consumed")
+    } == {
         "available": "0.00000000",
         "consumed": "0.00000000",
         "requests": 0,
         "today_consumed": "0.00000000",
     }
+    assert len(dashboard["trend"]) == 7
+    assert all(row["consumed"] == "0.00000000" for row in dashboard["trend"])
 
 
 def test_dashboard_counts_generation_and_text_and_only_settled_spending(client, session, call_log):
@@ -172,12 +177,16 @@ def test_dashboard_counts_generation_and_text_and_only_settled_spending(client, 
         )
     session.commit()
     stats = client.get("/api/account/dashboard").json()
-    assert stats == {
+    assert {key: stats[key] for key in ("available", "consumed", "requests", "today_consumed")} == {
         "available": "8.77000000",
         "consumed": "2.93035201",
         "requests": 5,
         "today_consumed": "1.70035201",
     }
+    trend = {row["date"]: row["consumed"] for row in stats["trend"]}
+    assert len(trend) == 7
+    assert trend[(today - timedelta(days=1)).date().isoformat()] == "1.23000000"
+    assert trend[today.date().isoformat()] == "1.70035201"
     model = session.scalar(select(Model).where(Model.public_id == "gpt-6.1-sol"))
     model.token_price.sale_multiplier = Decimal("2")
     session.commit()

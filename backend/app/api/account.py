@@ -14,6 +14,7 @@ from app.core.security import SESSION_COOKIE, issue_session
 from app.models import CreditEntry, Task, TaskAsset, TextCall
 from app.schemas import (
     Credentials,
+    DailyConsumption,
     DashboardSummary,
     TaskSummary,
     TextCallDetail,
@@ -93,6 +94,26 @@ def dashboard(user: CurrentUser, session: Database):
             CreditEntry.entry_type.in_(["settle", "text_charge", "refund"]),
         )
     ).one()
+    start = today - timedelta(days=6)
+    day = func.date(func.timezone("Asia/Shanghai", CreditEntry.created_at))
+    daily = dict(
+        session.execute(
+            select(day, func.coalesce(func.sum(amount), 0))
+            .where(
+                CreditEntry.user_id == user.id,
+                CreditEntry.entry_type.in_(["settle", "text_charge", "refund"]),
+                CreditEntry.created_at >= start,
+            )
+            .group_by(day)
+        ).all()
+    )
+    trend = [
+        DailyConsumption(
+            date=(start + timedelta(days=offset)).date().isoformat(),
+            consumed=daily.get((start + timedelta(days=offset)).date(), Decimal("0")),
+        )
+        for offset in range(7)
+    ]
     requests = session.scalar(
         select(func.count()).select_from(Task).where(Task.user_id == user.id)
     ) + session.scalar(
@@ -103,6 +124,7 @@ def dashboard(user: CurrentUser, session: Database):
         consumed=consumed,
         requests=requests,
         today_consumed=today_consumed,
+        trend=trend,
     )
 
 

@@ -109,9 +109,18 @@ test('dashboard retries unavailable statistics without showing unknown consumpti
     },
   }))
   let fail = true
+  await page.route('**/api/account/tasks', route => route.fulfill({ json: { data: [] } }))
   await page.route('**/api/account/dashboard', route => fail
     ? route.fulfill({ status: 503, json: { detail: '统计暂时不可用' } })
-    : route.fulfill({ json: { available: '-0.00000001', consumed: '1.00000001', requests: 1, today_consumed: '1.00000001' } }))
+    : route.fulfill({
+      json: {
+        available: '-0.00000001', consumed: '1.00000001', requests: 1, today_consumed: '1.00000001',
+        trend: Array.from({ length: 7 }, (_, index) => ({
+          date: `2026-11-${String(9 + index).padStart(2, '0')}`,
+          consumed: '0.00000000',
+        })),
+      },
+    }))
   await page.goto('/console')
   await expect(page.getByRole('alert')).toContainText('统计暂时不可用')
   await expect(page.locator('.dashboard-statistic dd')).toHaveText(['1.00000000', '—', '—', '—'])

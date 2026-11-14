@@ -35,11 +35,21 @@ class UserSummary(BaseModel):
     account: AccountSummary
 
 
+class DailyConsumption(BaseModel):
+    date: str
+    consumed: Decimal
+
+    @field_serializer("consumed")
+    def serialize_consumed(self, value: Decimal):
+        return format(value, ".8f")
+
+
 class DashboardSummary(BaseModel):
     available: Decimal
     consumed: Decimal
     requests: int
     today_consumed: Decimal
+    trend: list[DailyConsumption]
 
     @field_serializer("available", "consumed", "today_consumed")
     def serialize_credit(self, value: Decimal):

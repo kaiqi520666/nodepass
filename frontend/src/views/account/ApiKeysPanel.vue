@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { Check, CopyDocument, Delete, Edit, Plus, Refresh, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { http, errorMessage } from '../../api/http'
+import { copyText } from '../../utils/clipboard'
 import type { ApiKey } from '../../types'
 import AppTable from '../../components/AppTable.vue'
 
@@ -82,8 +83,7 @@ async function getSecret(id: number) {
 
 async function copySecret(key: ApiKey) {
   try {
-    await navigator.clipboard.writeText(await getSecret(key.id))
-    ElMessage.success('已复制 API Key')
+    await copyText(await getSecret(key.id), '已复制 API Key', '复制失败，请手动选择')
   } catch (cause) { ElMessage.error(errorMessage(cause)) }
 }
 
@@ -133,8 +133,7 @@ async function remove(key: ApiKey) {
 }
 
 async function copyVisibleSecret() {
-  try { await navigator.clipboard.writeText(secret.value); ElMessage.success('已复制 API Key') }
-  catch { ElMessage.error('复制失败，请手动选择') }
+  await copyText(secret.value, '已复制 API Key', '复制失败，请手动选择')
 }
 
 onMounted(load)
@@ -147,7 +146,7 @@ onMounted(load)
       <el-button type="primary" :icon="Plus" @click="openCreate">创建 Key</el-button>
       <el-tooltip content="刷新 API Key"><el-button :icon="Refresh" class="icon-button" :loading="loading" aria-label="刷新 API Key" @click="load" /></el-tooltip>
     </div>
-    <AppTable :data="keys" :loading="loading" empty-text="暂无 API Key">
+    <AppTable :data="keys" :loading="loading" empty-text="暂无 API Key" empty-hint="创建一个 API Key 后即可调用接口。">
       <el-table-column prop="name" label="名称" min-width="150" />
       <el-table-column label="密钥" min-width="260">
         <template #default="{ row }">
