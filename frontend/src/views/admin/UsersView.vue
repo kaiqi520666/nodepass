@@ -115,6 +115,25 @@ onMounted(load)
           </el-dropdown>
         </template>
       </el-table-column>
+      <template #mobile="{ rows }">
+        <article v-for="row in rows" :key="row.id" class="mobile-card">
+          <header class="mobile-card-header">
+            <div class="mobile-card-title">
+              <strong>{{ row.email }}</strong>
+              <span>ID {{ row.id }} · {{ row.is_admin ? '管理员' : '普通用户' }}</span>
+            </div>
+            <el-tag :type="row.is_active ? 'success' : 'danger'" effect="plain">{{ row.is_active ? '正常' : '已停用' }}</el-tag>
+          </header>
+          <dl class="mobile-card-grid">
+            <div><dt>可用积分</dt><dd class="numeric">{{ row.account.available }}</dd></div>
+            <div><dt>冻结积分</dt><dd class="numeric">{{ row.account.frozen }}</dd></div>
+          </dl>
+          <footer class="mobile-card-actions">
+            <el-button size="small" @click="openCredit(row)">积分调整</el-button>
+            <el-button size="small" @click="openPassword(row)">修改密码</el-button>
+          </footer>
+        </article>
+      </template>
     </AppTable>
     <el-dialog v-model="creditDialog" title="积分调整" width="480px" destroy-on-close>
       <el-form label-position="top">

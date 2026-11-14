@@ -281,6 +281,40 @@ onMounted(load)
               </div>
             </template>
           </el-table-column>
+          <template #mobile="{ rows }">
+            <article v-for="row in rows" :key="row.id" class="mobile-card">
+              <header class="mobile-card-header">
+                <div class="mobile-card-title">
+                  <strong>{{ row.model_name || row.model }}</strong>
+                  <span>{{ mediaTypeLabel(row.media_type) }} · {{ formatDate(row.created) }}</span>
+                </div>
+                <el-tag :type="statusType(row.status)" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+              </header>
+              <div class="task-id">
+                <code>{{ row.id }}</code>
+                <el-button :icon="CopyDocument" class="icon-button task-copy-button" :aria-label="`复制任务 ID ${row.id}`" @click="copyTaskId(row.id)" />
+              </div>
+              <dl class="mobile-card-grid">
+                <div><dt>耗时</dt><dd>{{ formatDuration(row.duration_ms) }}</dd></div>
+                <div><dt>扣除积分</dt><dd class="numeric">{{ billingAmount(row) }}</dd></div>
+                <div><dt>计费状态</dt><dd>{{ billingStatusLabel(row.billing_status) }}</dd></div>
+                <div><dt>模型</dt><dd><code>{{ row.model }}</code></dd></div>
+              </dl>
+              <footer class="mobile-card-actions">
+                <template v-if="row.data.length">
+                  <el-button
+                    v-for="(result, index) in row.data" :key="result.url" size="small" :icon="View"
+                    @click="row.media_type === 'image' ? showImage(row, Number(index)) : showVideo(row, Number(index))"
+                  >{{ row.media_type === 'image' ? '查看' : '播放' }}</el-button>
+                  <a
+                    v-for="(result, index) in row.data" :key="`download-${result.url}`"
+                    class="mobile-card-download" :href="result.url" :download="`${row.id}-${Number(index) + 1}`" aria-label="下载结果"
+                  ><el-icon><Download /></el-icon>下载</a>
+                </template>
+                <el-button size="small" @click="showDetails(row)">详情</el-button>
+              </footer>
+            </article>
+          </template>
         </AppTable>
       </el-tab-pane>
       <el-tab-pane label="文本调用" name="text" lazy>

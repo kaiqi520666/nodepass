@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Box, ChatDotRound, CopyDocument, Grid, Picture, Refresh, Search, VideoCamera, View } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import { http, errorMessage } from '../../api/http'
@@ -14,6 +14,7 @@ const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const query = ref('')
+const searchField = ref<{ focus: () => void }>()
 const type = ref('all')
 const family = ref('')
 const tier = ref('')
@@ -28,12 +29,16 @@ const options = [
   { label: '视频', value: 'video', icon: VideoCamera },
   { label: '文本', value: 'text', icon: ChatDotRound },
 ]
+const typeLabel = computed(() => options.find(option => option.value === type.value)?.label ?? '全部')
 const seriesOptions = computed(() => [...new Set([
   'gpt-image-2', 'gpt-image-2.5',
   ...models.value.filter(model => model.media_type === 'video').map(model => String(model.capabilities.family || '其他视频')),
   ...models.value.filter(model => model.media_type === 'text').map(model => String(model.capabilities.family)),
 ])])
 const units = { image: '张', video: '条', second: '秒', million_tokens: '百万 token' }
+const dimensionLabels: Record<string, string> = {
+  tier: '档位', series: '分支', quality: '质量', size: '尺寸', resolution: '分辨率', usage: '计费项',
+}
 const parameterNames: Record<string, string> = {
   sizes: '尺寸 / 比例', qualities: '质量', tiers: '档位', series: '分支',
   backgrounds: '背景', output_formats: '输出格式', resolutions: '分辨率',
@@ -65,6 +70,35 @@ function shortMoney(value: string) {
 
 function variantLabel(variant: Record<string, string>) {
   return Object.entries(variant).map(([key, value]) => `${key}: ${value}`).join(' · ') || '默认'
+}
+
+function stringList(value: unknown) {
+  return Array.isArray(value) ? value.map(String) : []
+}
+
+function capabilityChips(model: PublicModel) {
+  const capabilities = model.capabilities
+  const chips: string[] = []
+  if (model.media_type === 'image') {
+    const sizes = stringList(capabilities.sizes)
+    if (sizes.length) chips.push(`尺寸 ${sizes.slice(0, 3).join(' / ')}${sizes.length > 3 ? ' 等' : ''}`)
+    const qualities = stringList(capabilities.qualities)
+    if (qualities.length) chips.push(`质量 ${qualities.join(' / ')}`)
+    if (typeof capabilities.max_reference_images === 'number' && capabilities.max_reference_images > 0) chips.push(`参考图 ${capabilities.max_reference_images} 张`)
+    if (capabilities.supports_mask === true) chips.push('支持蒙版')
+  } else if (model.media_type === 'video') {
+    const resolutions = stringList(capabilities.resolutions)
+    if (resolutions.length) chips.push(resolutions.join(' / '))
+    if (capabilities.min_seconds !== undefined && capabilities.max_seconds !== undefined) chips.push(`${capabilities.min_seconds}–${capabilities.max_seconds} 秒`)
+    if (typeof capabilities.max_reference_images === 'number' && capabilities.max_reference_images > 0) chips.push(`参考图 ${capabilities.max_reference_images} 张`)
+    if (capabilities.supports_first_frame === true) chips.push('首帧')
+    if (capabilities.supports_last_frame === true) chips.push('尾帧')
+  } else {
+    const modalities = stringList(capabilities.input_modalities)
+    if (modalities.length) chips.push(`输入 ${modalities.map(item => item === 'image' ? '图片' : '文本').join(' + ')}`)
+    if (model.long_context_threshold) chips.push(`长上下文 ${model.long_context_threshold.toLocaleString('zh-CN')} Token`)
+  }
+  return chips
 }
 
 function priceGroups(prices: PublicPrice[]) {
@@ -112,6 +146,7 @@ function modelInfo(model: PublicModel) {
     prices,
     priceGroups: priceGroups(prices),
     priceDimensions: [...new Set(prices.flatMap(price => Object.keys(price.variant)))],
+    chips: capabilityChips(model),
   }
 }
 
@@ -177,7 +212,19 @@ async function copy(value: string) {
   await copyText(value, '已复制模型 ID', '复制失败，请手动选择模型 ID')
 }
 
-onMounted(load)
+function focusSearch(event: KeyboardEvent) {
+  if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return
+  const target = event.target as HTMLElement
+  if (target.closest('input, textarea, select, [contenteditable="true"]')) return
+  event.preventDefault()
+  searchField.value?.focus()
+}
+
+onMounted(() => {
+  load()
+  window.addEventListener('keydown', focusSearch)
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', focusSearch))
 watch(filtered, () => { catalogPage.value = 1 })
 </script>
 
@@ -202,7 +249,7 @@ watch(filtered, () => { catalogPage.value = 1 })
         </el-select>
       </div>
       <div class="filter-actions">
-        <el-input v-model="query" :prefix-icon="Search" placeholder="搜索模型名称或 ID" clearable aria-label="搜索模型" class="model-search" />
+        <el-input ref="searchField" v-model="query" :prefix-icon="Search" placeholder="搜索模型名称或 ID（按 / 聚焦）" clearable aria-label="搜索模型" aria-keyshortcuts="/" class="model-search" />
         <el-tooltip content="刷新模型" :show-after="400">
           <el-button :icon="Refresh" :loading="loading" class="icon-button" aria-label="刷新模型" @click="load" />
         </el-tooltip>
@@ -213,10 +260,16 @@ watch(filtered, () => { catalogPage.value = 1 })
       <el-result v-if="error" icon="warning" title="模型加载失败" :sub-title="error">
         <template #extra><el-button :icon="Refresh" @click="load">重试</el-button></template>
       </el-result>
-      <div v-else-if="loading && !models.length" class="catalog-list" aria-busy="true">
-        <div v-for="index in 4" :key="index" class="catalog-model-card catalog-skeleton-card"><el-skeleton :rows="4" animated /></div>
-      </div>
-      <div v-else v-loading="loading && models.length > 0" class="catalog-list">
+      <template v-else>
+        <p class="catalog-summary" role="status">
+          <span><strong>{{ filtered.length }}</strong> 个结果</span>
+          <span>{{ isConsoleModels ? selectedSeries : typeLabel }}</span>
+          <span>售价以积分计</span>
+        </p>
+        <div v-if="loading && !models.length" class="catalog-list" aria-busy="true">
+          <div v-for="index in 4" :key="index" class="catalog-model-card catalog-skeleton-card"><el-skeleton :rows="4" animated /></div>
+        </div>
+        <div v-else v-loading="loading && models.length > 0" class="catalog-list">
         <article v-for="row in displayedRows" :key="row.id" class="catalog-model-card">
           <header class="catalog-model-card-header">
             <div class="catalog-model-heading">
@@ -233,25 +286,35 @@ watch(filtered, () => { catalogPage.value = 1 })
               <el-button class="icon-button catalog-model-detail" :icon="View" :aria-label="`查看 ${row.id} 详情`" @click="showDetails(row)" />
             </el-tooltip>
           </header>
-          <div v-if="row.priceGroups.length" class="catalog-price-grid">
-            <table :aria-label="`${row.id} 价格`">
-              <thead><tr><th v-for="dimension in row.priceDimensions" :key="dimension" scope="col">{{ ({ tier: '档位', series: '分支', quality: '质量', size: '尺寸', resolution: '分辨率', usage: '计费项' } as Record<string, string>)[dimension] || dimension }}</th><th scope="col" class="catalog-price-amount">售价（积分）</th></tr></thead>
-              <tbody>
-                <tr v-for="(group, index) in row.priceGroups" :key="index" class="catalog-price-card">
-                  <td v-for="dimension in row.priceDimensions" :key="dimension" class="catalog-price-condition">{{ group.values[dimension] }}</td>
-                  <td class="catalog-price-amount"><strong class="numeric" :title="`${group.fullAmount} 积分`" :aria-label="`${group.fullAmount} 积分`">{{ group.amount }}</strong><span class="price-unit"> / {{ units[group.unit as keyof typeof units] }}</span></td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-if="row.chips.length" class="catalog-chips" :aria-label="`${row.id} 能力`">
+            <span v-for="chip in row.chips" :key="chip">{{ chip }}</span>
           </div>
+          <ul v-if="row.priceGroups.length" class="catalog-price-list" :aria-label="`${row.id} 价格`">
+            <li v-for="(group, index) in row.priceGroups.slice(0, 6)" :key="index" class="catalog-price-card">
+              <div class="catalog-price-meta">
+                <span v-for="dimension in row.priceDimensions" :key="dimension" class="catalog-price-tag">
+                  <span class="catalog-price-dimension">{{ dimensionLabels[dimension] || dimension }}</span>
+                  <strong>{{ group.values[dimension] }}</strong>
+                </span>
+              </div>
+              <div class="catalog-price-value">
+                <strong class="numeric" :title="`${group.fullAmount} 积分`" :aria-label="`${group.fullAmount} 积分`">{{ group.amount }}</strong>
+                <span class="price-unit">/ {{ units[group.unit as keyof typeof units] }}</span>
+              </div>
+            </li>
+          </ul>
           <p v-else class="catalog-no-price">暂无报价</p>
+          <p v-if="row.priceGroups.length > 6" class="catalog-price-more">
+            另有 {{ row.priceGroups.length - 6 }} 组价目，<button type="button" @click="showDetails(row)">查看完整价目</button>
+          </p>
         </article>
-        <div v-if="!filtered.length" class="table-empty catalog-empty">
-          <el-icon :size="32" aria-hidden="true"><Box /></el-icon>
-          <h2>{{ models.length ? '没有匹配的模型' : '暂无上架模型' }}</h2>
-          <p>{{ models.length ? '调整搜索或筛选条件后重试。' : '管理员上架模型后，这里会显示模型与价格。' }}</p>
+          <div v-if="!filtered.length" class="table-empty catalog-empty">
+            <el-icon :size="32" aria-hidden="true"><Box /></el-icon>
+            <h2>{{ models.length ? '没有匹配的模型' : '暂无上架模型' }}</h2>
+            <p>{{ models.length ? '调整搜索或筛选条件后重试。' : '管理员上架模型后，这里会显示模型与价格。' }}</p>
+          </div>
         </div>
-      </div>
+      </template>
       <AppPagination
         :page="catalogPage" :page-size="catalogPageSize" :total="filtered.length" :disabled="loading"
         @change="changePage"

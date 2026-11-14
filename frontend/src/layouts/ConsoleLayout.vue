@@ -103,7 +103,11 @@ async function logout() {
         </div>
       </header>
       <main id="main-content" tabindex="-1" class="main-content">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <Transition name="page" mode="out-in">
+            <component :is="Component" :key="route.path" />
+          </Transition>
+        </RouterView>
       </main>
     </div>
   </div>

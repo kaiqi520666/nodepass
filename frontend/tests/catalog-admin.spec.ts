@@ -59,7 +59,7 @@ test('GPT token pricing edits one sale multiplier and publishes eight decimal ra
   const card = page.locator('.catalog-model-card')
   await expect(card).toHaveCount(1)
   await expect(card).toContainText('0.02')
-  await expect(card.locator('.catalog-price-amount strong').last()).toHaveAttribute('title', '0.02000000 积分')
+  await expect(card.locator('.catalog-price-value strong').last()).toHaveAttribute('title', '0.02000000 积分')
   await expect(card).toContainText('百万 token')
   await expect(card).not.toContainText('成本')
 })

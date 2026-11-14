@@ -93,6 +93,24 @@ onMounted(load)
         <el-table-column label="操作" width="76" fixed="right">
           <template #default="{ row }"><el-button :icon="Edit" class="icon-button" :aria-label="`编辑 ${row.name}`" title="编辑供应商" @click="edit(row)" /></template>
         </el-table-column>
+        <template #mobile="{ rows }">
+          <article v-for="row in rows" :key="row.id" class="mobile-card">
+            <header class="mobile-card-header">
+              <div class="mobile-card-title">
+                <strong>{{ row.name }}</strong>
+                <span>{{ row.base_url }}</span>
+              </div>
+              <el-tag :type="row.is_active ? 'success' : 'info'" effect="plain">{{ row.is_active ? '已启用' : '已停用' }}</el-tag>
+            </header>
+            <dl class="mobile-card-grid">
+              <div><dt>密钥</dt><dd>{{ row.has_credentials ? '已配置' : '未配置' }}</dd></div>
+              <div><dt>接入方式</dt><dd><code>{{ row.adapter_key }}</code></dd></div>
+            </dl>
+            <footer class="mobile-card-actions">
+              <el-button size="small" :icon="Edit" :aria-label="`编辑 ${row.name}`" @click="edit(row)">编辑</el-button>
+            </footer>
+          </article>
+        </template>
     </AppTable>
     <el-dialog v-model="dialogOpen" :title="editingId ? '编辑供应商' : '新增供应商'" width="640px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" @closed="form.api_key = ''">
       <el-alert v-if="formError" :title="formError" type="error" :closable="false" show-icon class="form-alert" role="alert" />

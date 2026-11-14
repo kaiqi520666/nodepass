@@ -42,7 +42,7 @@ test('shared table paginates filtered rows, resets page size and handles empty r
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('server pagination preserves totals, disables while loading and resets offset on size change', async ({ page }) => {
+test('server pagination preserves totals, disables while loading and resets offset on size change', async ({ page }, testInfo) => {
   const users = Array.from({ length: 57 }, (_, index) => ({ ...user, id: index + 1, email: `user-${index + 1}@example.com` }))
   const requests: { offset: number; limit: number }[] = []
   let finishPage: (() => void) | undefined
@@ -58,18 +58,18 @@ test('server pagination preserves totals, disables while loading and resets offs
   await page.goto('/admin/users')
   const table = page.locator('.app-table')
   const pager = table.locator('.app-pagination')
-  await expect(table.getByRole('cell', { name: 'user-1@example.com', exact: true })).toBeVisible()
+  await expect(table.getByText('user-1@example.com', { exact: true })).toBeVisible()
   await expect(pager.getByRole('status')).toHaveText('共 57 条')
   await pager.locator('.btn-next').click()
   await expect(pager.locator('.btn-next')).toBeDisabled()
   await expect(pager.getByRole('combobox', { name: '每页条数' })).toBeDisabled()
   await expect.poll(() => Boolean(finishPage)).toBe(true)
   finishPage!()
-  await expect(table.getByRole('cell', { name: 'user-21@example.com', exact: true })).toBeVisible()
+  await expect(table.getByText('user-21@example.com', { exact: true })).toBeVisible()
   await expect(pager.locator('.btn-next')).toBeEnabled()
   await pager.getByText('20 条 / 页', { exact: true }).click()
   await page.getByRole('option', { name: '50 条 / 页', exact: true }).click()
-  await expect(table.locator('.el-table__body tbody tr')).toHaveCount(50)
+  await expect(table.locator(testInfo.project.name === 'mobile' ? '.mobile-card' : '.el-table__body tbody tr')).toHaveCount(50)
   expect(requests).toEqual([{ offset: 0, limit: 20 }, { offset: 20, limit: 20 }, { offset: 0, limit: 50 }])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

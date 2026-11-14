@@ -168,12 +168,13 @@ for (const isAdmin of [false, true]) {
       account: { available: '0.0000', frozen: '0.0000' },
     }
     await page.route('**/api/account/me', route => route.fulfill({ json: user }))
+    await page.route('**/api/account/logout', route => route.fulfill({ status: 204 }))
     await page.route('**/api/account/keys', route => route.fulfill({ json: { data: [] } }))
     await page.route('**/api/admin/users?*', route => route.fulfill({ json: { data: [user], total: 1 } }))
     await page.goto('/admin/users')
     if (isAdmin) {
       await expect(page.getByRole('heading', { name: '用户管理' })).toBeVisible()
-      await expect(page.getByRole('main').getByRole('cell', { name: user.email, exact: true })).toBeVisible()
+      await expect(page.getByRole('main').getByText(user.email, { exact: true })).toBeVisible()
       await expect(page.locator('.topbar').getByRole('link', { name: '用户管理', exact: true })).toHaveClass(/el-button/)
     } else {
       await expect(page).toHaveURL('/console')

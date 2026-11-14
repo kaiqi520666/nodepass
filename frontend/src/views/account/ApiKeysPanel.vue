@@ -180,6 +180,27 @@ onMounted(load)
           </div>
         </template>
       </el-table-column>
+      <template #mobile="{ rows }">
+        <article v-for="row in rows" :key="row.id" class="mobile-card">
+          <header class="mobile-card-header">
+            <div class="mobile-card-title">
+              <strong>{{ row.name }}</strong>
+              <span><code>{{ row.key_prefix }}...</code></span>
+            </div>
+            <el-tag :type="keyStatus(row).type" effect="plain">{{ keyStatus(row).label }}</el-tag>
+          </header>
+          <dl class="mobile-card-grid">
+            <div><dt>创建时间</dt><dd>{{ dateTime(row.created_at) }}</dd></div>
+            <div><dt>过期时间</dt><dd>{{ dateTime(row.expires_at) }}</dd></div>
+          </dl>
+          <footer class="mobile-card-actions">
+            <el-button size="small" :icon="View" @click="viewSecret(row)">查看</el-button>
+            <el-button size="small" :icon="CopyDocument" @click="copySecret(row)">复制</el-button>
+            <el-button size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain :icon="Delete" :loading="deleting === row.id" @click="remove(row)">删除</el-button>
+          </footer>
+        </article>
+      </template>
     </AppTable>
     <el-dialog v-model="createOpen" title="创建 API Key" width="520px" destroy-on-close>
       <el-form ref="form" :model="values" :rules="rules" label-position="top" @submit.prevent="create">

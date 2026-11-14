@@ -1,11 +1,11 @@
-<script setup lang="ts">
-import { computed, watch } from 'vue'
+<script setup lang="ts" generic="T extends object">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Box } from '@element-plus/icons-vue'
 import AppPagination from './AppPagination.vue'
 
 defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<{
-  data: object[]
+  data: T[]
   loading?: boolean
   emptyText?: string
   emptyHint?: string
@@ -15,6 +15,13 @@ const props = withDefaults(defineProps<{
 const page = defineModel<number>('page', { default: 1 })
 const pageSize = defineModel<number>('pageSize', { default: 20 })
 const emit = defineEmits<{ change: [] }>()
+const mobileQuery = window.matchMedia('(max-width: 900px)')
+const isMobile = ref(mobileQuery.matches)
+function updateMobile(event: MediaQueryListEvent) {
+  isMobile.value = event.matches
+}
+onMounted(() => mobileQuery.addEventListener('change', updateMobile))
+onBeforeUnmount(() => mobileQuery.removeEventListener('change', updateMobile))
 const count = computed(() => props.total ?? props.data.length)
 const rows = computed(() => props.pagination && props.total === undefined
   ? props.data.slice((page.value - 1) * pageSize.value, page.value * pageSize.value)
@@ -38,7 +45,16 @@ watch([count, () => props.loading], () => {
 
 <template>
   <div class="app-table" :aria-busy="loading">
-    <div v-loading="loading && rows.length > 0" class="app-table-body">
+    <div v-if="isMobile && $slots.mobile" v-loading="loading && rows.length > 0" class="app-table-cards">
+      <el-skeleton v-if="loading && !rows.length" :rows="4" animated class="table-skeleton" />
+      <slot v-else-if="rows.length" name="mobile" :rows="rows" />
+      <div v-else class="table-empty">
+        <el-icon :size="32" aria-hidden="true"><Box /></el-icon>
+        <h2>{{ emptyText }}</h2>
+        <p v-if="emptyHint">{{ emptyHint }}</p>
+      </div>
+    </div>
+    <div v-else v-loading="loading && rows.length > 0" class="app-table-body">
       <el-table v-bind="$attrs" :data="rows" table-layout="fixed">
         <slot />
         <template #empty>

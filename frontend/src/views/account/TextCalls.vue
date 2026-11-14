@@ -185,6 +185,30 @@ onMounted(load)
           <el-button class="task-detail-button" :loading="detailLoading === row.id" :disabled="Boolean(detailLoading)" @click="showDetails(row)">详情</el-button>
         </template>
       </el-table-column>
+      <template #mobile="{ rows }">
+        <article v-for="row in rows" :key="row.id" class="mobile-card">
+          <header class="mobile-card-header">
+            <div class="mobile-card-title">
+              <strong>{{ row.model }}</strong>
+              <span>{{ formatDate(row.created) }}</span>
+            </div>
+            <el-tag :type="statusOptions[row.status as TextCall['status']].type" effect="plain">{{ statusOptions[row.status as TextCall['status']].label }}</el-tag>
+          </header>
+          <div class="task-id">
+            <code>{{ row.id }}</code>
+            <el-button :icon="CopyDocument" class="icon-button task-copy-button" :aria-label="`复制调用 ID ${row.id}`" @click="copyId(row.id)" />
+          </div>
+          <dl class="mobile-card-grid">
+            <div><dt>输入 Token</dt><dd class="numeric">{{ tokenCount(row.input_tokens) }}</dd></div>
+            <div><dt>输出 Token</dt><dd class="numeric">{{ tokenCount(row.output_tokens) }}</dd></div>
+            <div><dt>耗时</dt><dd>{{ formatDuration(row.duration_ms) }}</dd></div>
+            <div><dt>扣除积分</dt><dd class="numeric">{{ row.charge_amount ?? '—' }}</dd></div>
+          </dl>
+          <footer class="mobile-card-actions">
+            <el-button size="small" :loading="detailLoading === row.id" :disabled="Boolean(detailLoading)" @click="showDetails(row)">详情</el-button>
+          </footer>
+        </article>
+      </template>
     </AppTable>
     <el-dialog v-model="detailOpen" title="文本调用详情" width="760px" destroy-on-close>
       <template v-if="selected">

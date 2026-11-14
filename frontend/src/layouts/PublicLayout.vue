@@ -45,7 +45,11 @@ watch(() => route.path, () => {
       </div>
     </header>
     <main id="main-content" tabindex="-1" :class="['public-main', { 'public-home': route.path === '/' }]">
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" :key="route.path" />
+        </Transition>
+      </RouterView>
     </main>
     <footer class="public-footer">
       <div><strong>NodePass</strong><span>图片与视频 API</span></div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ChatDotRound, Collection, Connection, Key, List, Picture, VideoCamera, Warning } from '@element-plus/icons-vue'
 import { ElTabPane, ElTabs } from 'element-plus'
@@ -21,10 +21,24 @@ const chapters = [
   { id: 'video-query-task', title: '查询视频任务', icon: List },
   { id: 'states-and-errors', title: '状态与错误', icon: Warning },
 ]
+const endpoints = [
+  { id: 'models', method: 'GET', path: '/v1/models', title: '模型列表' },
+  { id: 'chat-completions', method: 'POST', path: '/v1/chat/completions', title: 'Chat Completions' },
+  { id: 'responses', method: 'POST', path: '/v1/responses', title: 'Responses' },
+  { id: 'image-generation', method: 'POST', path: '/v1/images/generations', title: '图片生成' },
+  { id: 'image-edit', method: 'POST', path: '/v1/images/edits', title: '图片编辑' },
+  { id: 'query-task', method: 'GET', path: '/v1/images/generations/{task_id}', title: '查询图片任务' },
+  { id: 'video-generation', method: 'POST', path: '/v1/videos', title: '视频生成' },
+  { id: 'video-query-task', method: 'GET', path: '/v1/videos/{task_id}', title: '查询视频任务' },
+]
 const route = useRoute()
 const router = useRouter()
 const activeChapter = ref('quickstart')
 const textProtocol = ref('chat-completions')
+const activeEndpoint = computed(() => {
+  if (activeChapter.value === 'chat-completions') return textProtocol.value
+  return endpoints.some(endpoint => endpoint.id === activeChapter.value) ? activeChapter.value : ''
+})
 const mobileDirectory = ref<HTMLDetailsElement>()
 let observer: IntersectionObserver | undefined
 
@@ -61,6 +75,10 @@ onBeforeUnmount(() => observer?.disconnect())
 function selectChapter(id: string) {
   activeChapter.value = id
   if (mobileDirectory.value) mobileDirectory.value.open = false
+}
+
+function shortPath(path: string) {
+  return path.replace('/{task_id}', '/…')
 }
 
 const origin = window.location.origin
@@ -654,13 +672,22 @@ const language = ref('curl')
           <p>任务错误对象没有 <code>code</code> 和 <code>param</code>。此时冻结已释放，并写入 <code>completed</code>；成功任务则已结算并提供 <code>data[].url</code>。</p>
         </section>
       </div>
+      <aside class="api-docs-toc" aria-label="接口速览">
+        <nav>
+          <p class="api-directory-label">接口速览</p>
+          <router-link v-for="endpoint in endpoints" :key="endpoint.id" :to="`#${endpoint.id}`" :aria-current="activeEndpoint === endpoint.id ? 'location' : undefined">
+            <span class="api-toc-method" :data-method="endpoint.method">{{ endpoint.method }}</span>
+            <span class="api-toc-path"><code :title="endpoint.path">{{ shortPath(endpoint.path) }}</code><small>{{ endpoint.title }}</small></span>
+          </router-link>
+        </nav>
+      </aside>
     </div>
   </section>
 </template>
 
 <style scoped>
 .api-docs { width: 100%; }
-.api-docs-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); align-items: start; gap: 40px; }
+.api-docs-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr) 230px; align-items: start; gap: 32px; }
 .api-docs-sidebar { position: sticky; top: 108px; padding-right: 20px; border-right: 1px solid var(--app-border); }
 .api-directory-label { margin: 0 10px 12px; color: var(--app-muted); font-size: 12px; }
 .api-docs-sidebar a { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px; margin-bottom: 4px; border-radius: 6px; color: var(--app-muted); }
@@ -684,13 +711,29 @@ const language = ref('curl')
 .api-note { padding: 16px 18px; border-left: 3px solid var(--el-color-primary); background: var(--app-active); }
 .api-note h3 { margin: 0 0 10px; }
 .api-note p { margin: 8px 0; }
-.api-endpoint { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px 0; margin-bottom: 16px; border-block: 1px solid var(--app-border); }
+.api-endpoint { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 14px; margin-bottom: 16px; border: 1px solid var(--app-border); border-left: 3px solid var(--el-color-primary); border-radius: 6px; background: var(--app-surface); }
+.api-endpoint .el-tag { font-family: monospace; font-weight: 600; }
 .api-endpoint code { overflow-wrap: anywhere; font-size: 13px; }
 .api-endpoint > span:last-child { margin-left: auto; color: var(--app-muted); font-size: 12px; }
+.api-docs-toc { position: sticky; top: 108px; padding-left: 20px; border-left: 1px solid var(--app-border); }
+.api-docs-toc nav { display: grid; gap: 4px; }
+.api-docs-toc a { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border-radius: 6px; color: var(--app-muted); }
+.api-docs-toc a:hover, .api-docs-toc a[aria-current="location"] { background: var(--app-active); color: var(--el-color-primary); }
+.api-docs-toc a[aria-current="location"] .api-toc-path small { color: var(--el-color-primary); }
+.api-toc-method { flex-shrink: 0; padding-top: 1px; font-family: monospace; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.api-toc-method[data-method="GET"] { color: var(--el-color-success); }
+.api-toc-method[data-method="POST"] { color: var(--el-color-primary); }
+.api-toc-path { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.api-toc-path code { font-size: 11px; overflow-wrap: anywhere; }
+.api-toc-path small { color: var(--app-faint); font-size: 11px; }
 .api-muted { color: var(--app-muted); }
 .api-error-table p { margin: 0; font-size: 13px; }
 .api-error-table code { font-size: 12px; }
 .api-mobile-directory { display: none; }
+@media (max-width: 1100px) {
+  .api-docs-layout { grid-template-columns: 190px minmax(0, 1fr); gap: 32px; }
+  .api-docs-toc { display: none; }
+}
 @media (max-width: 900px) {
   .api-docs-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .api-docs-sidebar { display: none; }

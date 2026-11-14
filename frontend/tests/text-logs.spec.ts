@@ -12,7 +12,7 @@ const calls = Array.from({ length: 24 }, (_, index) => ({
   charge_amount: index % 4 === 1 ? '0.00086333' : index === 2 ? '0.00010000' : null,
 }))
 
-test('text log tabs, server filters, pagination, details and retry', async ({ page }) => {
+test('text log tabs, server filters, pagination, details and retry', async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/api/account/me', route => route.fulfill({
@@ -54,11 +54,14 @@ test('text log tabs, server filters, pagination, details and retry', async ({ pa
   await expect(page.getByText('暂无匹配的任务', { exact: true })).toBeVisible()
   await page.getByRole('tab', { name: '文本调用', exact: true }).click()
   const logs = page.getByRole('region', { name: '文本调用日志' })
+  const rowFor = (id: string) => testInfo.project.name === 'mobile'
+    ? logs.locator('.mobile-card').filter({ hasText: id })
+    : logs.getByRole('row').filter({ hasText: id })
   await expect(logs.getByRole('status')).toContainText('24')
-  const first = logs.getByRole('row').filter({ hasText: calls[0]!.id })
+  const first = rowFor(calls[0]!.id)
   await expect(first).toContainText('调用中')
-  await expect(first.getByRole('cell').nth(6)).toHaveText('—')
-  const completed = logs.getByRole('row').filter({ hasText: calls[1]!.id })
+  await expect(first).toContainText('—')
+  const completed = rowFor(calls[1]!.id)
   await expect(completed).toContainText('0.00086333')
   await completed.getByRole('button', { name: '详情', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '文本调用详情', exact: true })
@@ -75,7 +78,7 @@ test('text log tabs, server filters, pagination, details and retry', async ({ pa
   await logs.locator('.el-select').filter({ has: page.getByRole('combobox', { name: '文本调用状态', exact: true }) }).click()
   await page.getByRole('option', { name: '用量待核实', exact: true }).click()
   await expect(logs.getByRole('status')).toContainText('6')
-  const unknown = logs.getByRole('row').filter({ hasText: calls[3]!.id })
+  const unknown = rowFor(calls[3]!.id)
   await unknown.getByRole('button', { name: '详情', exact: true }).click()
   await expect(dialog).toContainText('尚未结算')
   await expect(dialog).toContainText('调用中断，未取得最终用量')
