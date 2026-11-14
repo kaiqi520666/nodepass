@@ -1,33 +1,11 @@
 import base64
-import json
-from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from app.models import Provider, Task
-
-
-class ProviderError(RuntimeError):
-    def __init__(self, message: str, *, explicit_failure: bool = False):
-        super().__init__(message)
-        self.explicit_failure = explicit_failure
-
-
-@dataclass(frozen=True)
-class ImageOutput:
-    url: str | None = None
-    b64_json: str | None = None
-    content_type: str = "image/png"
-
-
-@dataclass(frozen=True)
-class ImageResult:
-    state: str
-    upstream_id: str | None = None
-    outputs: tuple[ImageOutput, ...] = ()
-    raw_status: str | None = None
-    error: str | None = None
+from app.models import Task
+from app.providers.base import GenerationOutput, GenerationResult, JsonAdapter, ProviderError
 
 
 def _state(value: Any) -> str:
@@ -41,14 +19,14 @@ def _state(value: Any) -> str:
     return "processing"
 
 
-def _outputs(payload: dict[str, Any]) -> tuple[ImageOutput, ...]:
+def _outputs(payload: dict[str, Any]) -> tuple[GenerationOutput, ...]:
     values = payload.get("data") or payload.get("output") or []
     if isinstance(values, dict):
         values = [values]
-    result: list[ImageOutput] = []
+    result: list[GenerationOutput] = []
     for value in values:
         if isinstance(value, str):
-            result.append(ImageOutput(url=value))
+            result.append(GenerationOutput(url=value))
             continue
         if not isinstance(value, dict):
             continue
@@ -56,7 +34,7 @@ def _outputs(payload: dict[str, Any]) -> tuple[ImageOutput, ...]:
         b64 = value.get("b64_json") or value.get("base64")
         if url or b64:
             result.append(
-                ImageOutput(
+                GenerationOutput(
                     url=url,
                     b64_json=b64,
                     content_type=value.get("content_type") or "image/png",
@@ -65,46 +43,8 @@ def _outputs(payload: dict[str, Any]) -> tuple[ImageOutput, ...]:
     return tuple(result)
 
 
-class CangyuanImageAdapter:
-    def __init__(self, provider: Provider, api_key: str):
-        self.provider = provider
-        self.api_key = api_key
-        config = provider.request_config or {}
-        self.timeout = int(config.get("timeout_seconds", 60))
-
-    def _request(self, path: str, *, method: str = "GET", payload: dict[str, Any] | None = None):
-        url = f"{self.provider.base_url.rstrip('/')}{path}"
-        body = (
-            json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
-        )
-        request = Request(
-            url,
-            data=body,
-            method=method,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "NodePass/0.1",
-            },
-        )
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            try:
-                detail = json.loads(exc.read().decode("utf-8"))
-                message = detail.get("error", {}).get("message") or detail.get("message")
-            except (ValueError, AttributeError):
-                message = None
-            raise ProviderError(
-                f"上游请求被拒绝{f': {message}' if message else ''}",
-                explicit_failure=exc.code < 500,
-            ) from exc
-        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
-            raise ProviderError("上游请求失败，无法确认任务状态") from exc
-
-    def submit(self, task: Task) -> ImageResult:
+class CangyuanImageAdapter(JsonAdapter):
+    def submit(self, task: Task) -> GenerationResult:
         params = dict(task.request_params or {})
         payload: dict[str, Any] = {
             "model": task.model_snapshot["upstream_model_id"],
@@ -124,7 +64,12 @@ class CangyuanImageAdapter:
         ):
             if params.get(field) is not None:
                 payload[field] = params[field]
-        response = self._request("/v1/images/generations", method="POST", payload=payload)
+        operation = "edits" if "images" in params else "generations"
+        if operation == "edits":
+            payload["images"] = [item["image_url"] for item in params["images"]]
+            if params.get("mask"):
+                payload["mask"] = params["mask"]["image_url"]
+        response = self._request(f"/v1/images/{operation}", method="POST", payload=payload)
         upstream_id = response.get("id") or response.get("task_id")
         if not upstream_id:
             raise ProviderError("上游响应缺少任务 ID，无法确认受理")
@@ -132,15 +77,17 @@ class CangyuanImageAdapter:
         outputs = _outputs(response)
         if outputs:
             state = "succeeded"
-        return ImageResult(
+        return GenerationResult(
             state=state,
             upstream_id=str(upstream_id),
             outputs=outputs,
             raw_status=response.get("status"),
         )
 
-    def query(self, upstream_id: str) -> ImageResult:
-        response = self._request(f"/v1/images/generations/{upstream_id}")
+    def query(self, task: Task) -> GenerationResult:
+        upstream_id = task.upstream_task_id
+        operation = "edits" if "images" in task.request_params else "generations"
+        response = self._request(f"/v1/images/{operation}/{quote(upstream_id, safe='')}")
         state = _state(response.get("status"))
         outputs = _outputs(response)
         if outputs:
@@ -148,7 +95,7 @@ class CangyuanImageAdapter:
         error = response.get("error")
         if isinstance(error, dict):
             error = error.get("message")
-        return ImageResult(
+        return GenerationResult(
             state=state,
             upstream_id=upstream_id,
             outputs=outputs,
@@ -157,7 +104,7 @@ class CangyuanImageAdapter:
         )
 
 
-def decode_output(output: ImageOutput) -> tuple[bytes, str]:
+def decode_output(output: GenerationOutput) -> tuple[bytes, str]:
     if output.b64_json:
         try:
             return base64.b64decode(output.b64_json, validate=True), output.content_type

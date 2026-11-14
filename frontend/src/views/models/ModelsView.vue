@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Box, CopyDocument, Grid, Picture, Refresh, Search, VideoCamera, View } from '@element-plus/icons-vue'
+import { Box, ChatDotRound, CopyDocument, Grid, Picture, Refresh, Search, VideoCamera, View } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { http, errorMessage } from '../../api/http'
@@ -26,18 +26,32 @@ const options = [
   { label: '全部', value: 'all', icon: Grid },
   { label: '图片', value: 'image', icon: Picture },
   { label: '视频', value: 'video', icon: VideoCamera },
+  { label: '文本', value: 'text', icon: ChatDotRound },
 ]
-const seriesOptions = ['gpt-image-2', 'gpt-image-2.5', 'gpt-image-2.6']
-const units = { image: '张', video: '条', second: '秒' }
+const seriesOptions = computed(() => [...new Set([
+  'gpt-image-2', 'gpt-image-2.5',
+  ...models.value.filter(model => model.media_type === 'video').map(model => String(model.capabilities.family || '其他视频')),
+  ...models.value.filter(model => model.media_type === 'text').map(model => String(model.capabilities.family)),
+])])
+const units = { image: '张', video: '条', second: '秒', million_tokens: '百万 token' }
 const parameterNames: Record<string, string> = {
   sizes: '尺寸 / 比例', qualities: '质量', tiers: '档位', series: '分支',
   backgrounds: '背景', output_formats: '输出格式', resolutions: '分辨率',
   durations: '时长', max_reference_images: '参考图上限', supports_mask: '蒙版编辑',
+  aspect_ratios: '比例', min_seconds: '最短时长（秒）', max_seconds: '最长时长（秒）',
+  max_reference_videos: '参考视频上限', max_reference_audios: '参考音频上限',
+  supports_first_frame: '首帧图片', supports_last_frame: '尾帧图片', family: '系列', version: '版本',
+  input_modalities: '输入类型',
 }
+const parameterOrder = [
+  'series', 'max_seconds', 'min_seconds', 'resolutions', 'aspect_ratios',
+  'max_reference_images', 'max_reference_videos', 'max_reference_audios',
+  'supports_first_frame', 'supports_last_frame',
+]
 
 function money(value: string) {
   const [integer, fraction = ''] = value.split('.')
-  return `${integer}.${fraction.replace(/0+$/, '').padEnd(4, '0')}`
+  return `${integer}.${fraction.padEnd(8, '0')}`
 }
 
 function variantLabel(variant: Record<string, string>) {
@@ -48,31 +62,47 @@ function priceGroups(prices: PublicPrice[]) {
   const groups = new Map<string, { amount: string; unit: PublicPrice['unit']; variants: Record<string, string>[] }>()
   for (const price of prices) {
     const amount = money(price.unit_price)
-    const key = `${price.unit}:${amount}`
+    const dimensions = Object.entries(price.variant).filter(([key]) => key !== 'quality').sort()
+    const key = JSON.stringify([price.unit, amount, dimensions])
     const group = groups.get(key)
     if (group) group.variants.push(price.variant)
     else groups.set(key, { amount, unit: price.unit, variants: [price.variant] })
   }
   return [...groups.values()].map(group => {
-    const qualityOnly = group.variants.every(variant => Object.keys(variant).length === 1 && variant.quality)
     const detail = group.variants.map(variantLabel).join('；')
-    const label = qualityOnly ? group.variants.map(variant => variant.quality).join(' / ')
-      : group.variants.map(variantLabel).join(' / ')
-    return { ...group, label, detail }
+    const values = Object.fromEntries(Object.keys(group.variants[0]!).map(key => [
+      key, [...new Set(group.variants.map(variant => variant[key]))].join(' / '),
+    ]))
+    return { ...group, values, detail }
   })
 }
 
 function modelInfo(model: PublicModel) {
-  const match = model.media_type === 'image' ? /^gpt-image-(2(?:\.5|\.6)?)(?:-(flare|sunburst))?(?:-(1k|2k|4k))?$/.exec(model.id) : null
+  const match = model.media_type === 'image' ? /^gpt-image-(2(?:\.5)?)$/.exec(model.id) : null
   const configuredTiers = model.capabilities.tiers
   const resolutions = model.capabilities.resolutions
+  const prices: PublicPrice[] = model.token_prices ? [
+    { variant: { usage: '输入' }, unit: 'million_tokens', unit_price: model.token_prices.input_price },
+    { variant: { usage: '输出（含思考）' }, unit: 'million_tokens', unit_price: model.token_prices.output_price },
+    { variant: { usage: '缓存命中' }, unit: 'million_tokens', unit_price: model.token_prices.cache_read_price },
+  ] : model.prices
+  if (model.long_context_token_prices) {
+    const prefix = `输入超过 ${model.long_context_threshold?.toLocaleString('zh-CN')} Token · `
+    prices.push(
+      { variant: { usage: `${prefix}输入` }, unit: 'million_tokens', unit_price: model.long_context_token_prices.input_price },
+      { variant: { usage: `${prefix}输出（含思考）` }, unit: 'million_tokens', unit_price: model.long_context_token_prices.output_price },
+      { variant: { usage: `${prefix}缓存命中` }, unit: 'million_tokens', unit_price: model.long_context_token_prices.cache_read_price },
+    )
+  }
   return {
-    displayName: model.name === model.id && match
-      ? `GPT Image ${match[1]}${match[2] ? ` · ${match[2] === 'flare' ? 'Flare' : 'Sunburst'}` : ''}` : model.name,
-    family: match ? `GPT Image ${match[1]}` : model.media_type === 'image' ? '其他图片' : '其他视频',
-    tiers: match ? [match[3] || 'web'] : Array.isArray(configuredTiers) && configuredTiers.length
+    displayName: model.name === model.id && match ? `GPT Image ${match[1]}` : model.name,
+    family: match ? `GPT Image ${match[1]}` : model.media_type === 'image' ? '其他图片' : String(model.capabilities.family || '其他视频'),
+    seriesKey: match ? `gpt-image-${match[1]}` : String(model.capabilities.family || '其他视频'),
+    tiers: Array.isArray(configuredTiers) && configuredTiers.length
       ? configuredTiers.map(String) : Array.isArray(resolutions) ? resolutions.map(String) : [],
-    priceGroups: priceGroups(model.prices),
+    prices,
+    priceGroups: priceGroups(prices),
+    priceDimensions: [...new Set(prices.flatMap(price => Object.keys(price.variant)))],
   }
 }
 
@@ -83,7 +113,7 @@ const typeRows = computed(() => rows.value.filter(model => type.value === 'all' 
 const families = computed(() => [...new Set(typeRows.value.map(model => model.family))])
 const tiers = computed(() => [...new Set(typeRows.value.flatMap(model => model.tiers))])
 const filtered = computed(() => rows.value.filter(model =>
-  (isConsoleModels.value ? model.media_type === 'image' && model.family === `GPT Image ${selectedSeries.value.replace('gpt-image-', '')}` : type.value === 'all' || model.media_type === type.value)
+  (isConsoleModels.value ? model.seriesKey === selectedSeries.value : type.value === 'all' || model.media_type === type.value)
   && (isConsoleModels.value || !family.value || model.family === family.value)
   && (!tier.value || model.tiers.includes(tier.value))
   && `${model.id} ${model.name} ${model.displayName}`.toLowerCase().includes(query.value.trim().toLowerCase()),
@@ -99,7 +129,13 @@ const parameters = computed(() => Object.entries(selected.value?.capabilities ||
     values: Array.isArray(value) ? value.map(String)
       : [typeof value === 'boolean' ? (value ? '支持' : '不支持')
         : key === 'max_reference_images' ? (value ? `${value} 张` : '—') : String(value)],
-  })))
+  }))
+  .sort((left, right) => {
+    const leftIndex = parameterOrder.indexOf(left.key)
+    const rightIndex = parameterOrder.indexOf(right.key)
+    return (leftIndex < 0 ? parameterOrder.length : leftIndex)
+      - (rightIndex < 0 ? parameterOrder.length : rightIndex)
+  }))
 
 function changeType() {
   family.value = ''
@@ -174,6 +210,7 @@ watch(filtered, () => { catalogPage.value = 1 })
           <header class="catalog-model-card-header">
             <div class="catalog-model-heading">
               <h2 class="catalog-model-title">{{ row.displayName }}</h2>
+              <p v-if="row.media_type === 'video'" class="price-unit">{{ row.tiers.join(' / ') }} · {{ row.capabilities.min_seconds }}–{{ row.capabilities.max_seconds }} 秒</p>
               <div class="catalog-model-id-row">
                 <code class="catalog-model-id">{{ row.id }}</code>
                 <el-tooltip content="复制模型 ID">
@@ -186,10 +223,15 @@ watch(filtered, () => { catalogPage.value = 1 })
             </el-tooltip>
           </header>
           <div v-if="row.priceGroups.length" class="catalog-price-grid">
-            <div v-for="group in row.priceGroups" :key="`${group.unit}:${group.amount}`" class="catalog-price-card" :title="group.detail">
-              <div class="catalog-price-condition">{{ group.label }}</div>
-              <div class="catalog-price-value"><strong class="numeric">{{ group.amount }}</strong><span class="price-unit"> / {{ units[group.unit as keyof typeof units] }}</span></div>
-            </div>
+            <table :aria-label="`${row.id} 价格`">
+              <thead><tr><th v-for="dimension in row.priceDimensions" :key="dimension" scope="col">{{ ({ tier: '档位', series: '分支', quality: '质量', size: '尺寸', resolution: '分辨率', usage: '计费项' } as Record<string, string>)[dimension] || dimension }}</th><th scope="col" class="catalog-price-amount">售价（积分）</th></tr></thead>
+              <tbody>
+                <tr v-for="(group, index) in row.priceGroups" :key="index" class="catalog-price-card">
+                  <td v-for="dimension in row.priceDimensions" :key="dimension" class="catalog-price-condition">{{ group.values[dimension] }}</td>
+                  <td class="catalog-price-amount"><strong class="numeric">{{ group.amount }}</strong><span class="price-unit"> / {{ units[group.unit as keyof typeof units] }}</span></td>
+                </tr>
+              </tbody>
+            </table>
           </div>
           <p v-else class="catalog-no-price">暂无报价</p>
         </article>

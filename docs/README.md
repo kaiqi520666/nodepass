@@ -1,55 +1,60 @@
-# NodePass 项目文档
+# NodePass Agent 入口
 
-整理日期：2026-11-06。最近更新：2026-11-08。
+更新：2026-11-11。本目录供 AI Agent 接手开发，只维护代码无法直接表达的决定、关键约束和接入差异，不复制完整字段表、目录树或公开 API 文档。
 
-本文档记录方案讨论结果，用于设计和开发。现已初始化前后端基础工程，实现注册登录、角色鉴权、三态主题、公开模型读取、个人 API Key 管理、OpenAI 兼容模型列表、图片请求校验与积分冻结、管理员用户列表及 OSS 系统设置；图片异步 Worker、沧元查询、结果转存、积分结算/释放和任务查询已接入。启动与检查见[根目录说明](../README.md)。沧元图片规则已按用户最新指定的 GPT Image 2、2.5、2.6 三个章节页于 2026-11-07 重新整理，见[当前接入基线](providers.md#沧元图片当前接入基线)。实际付费上游验证仍需单独授权。
+## 按任务阅读
 
-## 阅读顺序
+先遵守根目录 [AGENTS.md](../AGENTS.md)，再按任务读取：
 
-| 文档 | 内容 |
+| 任务 | 文档 |
 | --- | --- |
-| [需求确认](requirements.md) | 已确认需求、第一版范围、待确认事项和已取消方案 |
-| [技术栈](tech-stack.md) | 已指定技术、补充选型建议和依赖边界 |
-| [项目目录](project-structure.md) | 当前目录、应用结构规划和文件归属 |
-| [UI/UX Pro Max 使用与界面规范](ui-ux-pro-max.md) | 本地技能用法、项目选型约束、权限菜单、主题及界面验收 |
-| [系统架构](architecture.md) | 职责边界、调用关系、数据组织、配置管理和 API 设计约束 |
-| [数据库表结构](database-design.md) | 13 张业务表、字段、约束、价格匹配和账务数据边界 |
-| [任务状态与积分流转](task-lifecycle.md) | 执行状态、超时处理、冻结结算、事务及异常恢复 |
-| [上游接入说明](providers.md) | 四家文档地址、此前阅读结论、适配边界和接入验证要求 |
+| 业务范围、权限、界面和未完成事项 | [需求与约定](requirements.md) |
+| 生成任务、计费、超时、重启与恢复 | [任务与账务](task-lifecycle.md) |
+| 上游映射、初始化计价与验证边界 | [供应商接入](providers.md) |
+| 安装、启动、环境、初始化与检查命令 | [根目录 README](../README.md) |
 
-## 当前方案
+## 当前实现
 
-当前还已完成供应商和图片模型价目管理，入口为管理员侧栏“供应商配置”“模型与价格”“系统设置”。图片生成入口已完成参数校验、价格匹配、任务建档和积分冻结；Worker 通过 `python -m app.worker` 执行沧元异步任务，结果转存 OSS 后结算，明确失败释放积分，任务日志和兼容查询接口可读取状态。
+- 官网和控制台采用独立布局，共用 Vue 工程、登录与三态主题。
+- 后台维护用户、供应商、三类模型与价格、OSS；支持调账、修改用户密码。
+- 图片为沧元两个参数化模型，支持生成及 HTTPS 参考图编辑、可选 mask；MEAICC 十个视频型号已接入异步生成；ModelGate `gpt-6.1-sol` 支持文本、图片理解、严格结构化输出、函数调用、搜索与 JSON/SSE。
+- 图片/视频由数据库任务驱动单 Worker，完成本站结果转存后结算；文本在 API 进程内调用、按最终用量后付费。
+- 任务日志分生成任务和文本调用；仪表盘读取真实统计。尚未实现项只在[需求待办](requirements.md#未实现与待确认)维护。
+- 已实现不等于所有上游型号和参数均经真实付费验收；范围见[供应商接入](providers.md)。
 
-- 提供图片、视频生成的 OpenAI 兼容 API，聚合第三方中转站。
-- 模型目录、对应价格和 API 文档无需登录即可公开访问；实际业务调用仍需鉴权。
-- 一个对外模型绑定一个供应商和一个上游模型 ID，本站模型 ID 全局唯一。
-- 图片第一阶段只接沧元，当前接入目标为 GPT Image 2、2.5、2.6 三个系列；具体上游型号和档位需分别核验，上线模型由管理员后台添加。
-- 2026-11-08 已按用户最终名单向本地数据库录入二十个下架模型及八十条价目，成本与售价初始同额；其中两个 2.6 分支 web 型号按用户提供的 0.0150/张补齐价格，实际调用仍待核验。名单、价格和质量计费条件见[本次接入记录](providers.md#本次型号选择与报价核对2026-11-08)，不代表生成接口已开放。
-- 不做网页创作台，不做多线路和自动切换。
-- 官网、用户与管理页面使用同一前端工程和登录；官网为顶部导航，模型页面称为“模型广场”，控制台为独立侧栏布局。用户菜单为仪表盘、模型定价、API 令牌、任务日志、账户设置，管理员保留额外管理入口。
-- 全站支持明亮、暗黑、跟随系统三种主题模式。
-- 用户使用邮箱和密码注册，暂不验证邮箱、不提供找回密码，使用后台生成的兑换码充值；兑换码单次使用，无有效期、不支持禁用。
-- 1 元人民币对应 1 积分，金额普通四舍五入到四位小数；提交冻结，结果转存至本站 OSS 完成后成功结算，明确失败释放或退回积分。
-- 图片一次只生成一张；视频按次（每条）或按用户提交参数指定的秒数计费，后台按模型和分辨率配置价目。
-- 图片、视频均独立记录成本价与售价，由管理员在后台配置；用户只看到售价，已有任务保留价格快照。
-- 业务配置尽量放数据库，管理员通过后台维护。
-- 素材支持本站上传、外部 URL；按上游要求转换 Base64 或直接传递 HTTPS 地址。
-- 本站对象存储使用阿里云 OSS；全部生成结果统一转存完成后交付。
-- 本站素材、任务和业务记录暂时都保留，不设置自动清理策略。
-- 任务超时后显示超时，后台继续查询；收到迟到成功结果后自动转存、交付并结算，无法确认的情况仍由管理员核实。
-- 视频采用统一的常用参数集合，按模型能力校验；暂不设置业务调用次数、频率或并发配额。
+## 技术与运行
 
-## 文档状态
+- 前端：Vue 3、TypeScript、Vite、Element Plus 及其图标库、Vue Router、Pinia、Axios、pnpm。
+- 后端：Python 3.12、FastAPI、Pydantic、SQLAlchemy 2、psycopg 3、PostgreSQL、Alembic；Cookie 会话、Argon2 密码哈希、Fernet 凭证加密。
+- 生成通信使用标准库，文本 JSON/SSE 使用 HTTPX；结果存储使用阿里云 `oss2`；检查使用 Ruff、pytest、vue-tsc、Playwright。
+- 模块化单体，数据库是配置、调度和账务事实源；没有 Redis、Celery、外部队列或生产编排。
+- 本地两个入口为前端 `pnpm dev`、后端 `uv run python -m app.dev`；后者统一管理数据库检查、迁移、API 和 Worker。
+- 精确依赖见 `frontend/package.json`、`backend/pyproject.toml` 及对应锁文件；不新增文档框架、高亮库、主题库或通用协议引擎。
 
-- **已确认**：用户明确接受的业务要求，记录在需求文档中。
-- **建议方案**：用于推进设计的默认建议，不能替代尚未确认的业务规则。
-- **待核验**：供应商接口、官方协议、账号能力等外部信息，需要在接入时核对。
+## 关键代码入口
 
-后续讨论以用户最新决定为准，同时更新相关文档。目录树表示建议组织方式，不表示对应模块已经实现。
+下列路径相对项目根目录；查具体行为时读取相关代码和测试，不在文档复刻实现。
 
-技术清单以 `tech-stack.md` 为准，目录树以 `project-structure.md` 为准，设计技能使用和界面实施细节以 `ui-ux-pro-max.md` 为准。表结构在 `database-design.md` 维护，目前已落地账号、目录、任务、账务流水和系统设置基础表；素材、任务素材关联、兑换码和审计仍待实现。任务、账务事务与恢复流程在 `task-lifecycle.md` 维护，其中当前仅实现受理、价格快照和冻结。需求文档保留业务要求，架构文档通过链接引用这些专项内容，避免重复维护。
+| 关注点 | 入口 |
+| --- | --- |
+| 应用、错误与网页来源校验 | `backend/app/main.py`、`backend/app/core/errors.py` |
+| 开发者接口与鉴权 | `backend/app/api/openai.py`、`backend/app/api/dependencies.py` |
+| 生成参数、价格匹配与冻结 | `backend/app/schemas.py`、`backend/app/services/generations.py` |
+| 调度、转存、结算与释放 | `backend/app/worker.py`、`backend/app/services/task_execution.py` |
+| 文本请求、JSON/SSE 与扣费 | `backend/app/schemas_text.py`、`backend/app/services/text_generation.py`、`backend/app/services/text_billing.py` |
+| 供应商与初始化配置 | `backend/app/providers/`、`backend/app/services/{catalog,text_catalog,video_catalog}.py` |
+| 模型后台与能力校验 | `backend/app/services/catalog_admin.py`、`backend/app/schemas_catalog.py` |
+| 结果下载、OSS 与设置 | `backend/app/services/{media,storage,settings}.py` |
+| 表结构、约束与迁移 | `backend/app/models/`、`backend/migrations/versions/` |
+| 个人日志、统计、Key 与管理 | `backend/app/api/{account,api_keys,admin}.py` |
+| 页面、菜单、主题与共用样式 | `frontend/src/{views,layouts,router,stores,components}/`、`frontend/src/assets/main.css` |
+| 公开接入文档 | `frontend/src/views/docs/ApiDocsView.vue`、`ApiCodeBlock.vue`、`image-generation.example.json`、`image-edit.example.json` |
+| 离线与浏览器验证 | `backend/tests/`、`frontend/tests/`；具体入口见[任务与账务](task-lifecycle.md#日志统计与验证入口) |
 
-## 下一步需要确认
+## 维护方式
 
-剩余事项集中在上游成本的币种和计价口径、长期无法确认终态时的处理、API 兼容清单、视频参数及阿里云 OSS 接入细节。管理员分别配置成本价与售价、阿里云 OSS 选型、计费舍入、结算条件、按秒口径、迟到结果处理和兑换码基本规则均已确认。完整清单见[需求确认中的待确认事项](requirements.md#待确认事项)。
+- 用户最新决定优先；只在对应一处维护规则，其余引用。区分已确认、已实现和待核验。
+- 改业务决定更新需求；改结算/恢复更新任务文档；改接入差异更新供应商文档；改入口更新本页。
+- 接口字段以路由、schema、转换代码和实际响应为准；表结构以 ORM 和迁移为准。变更对外协议同时维护公开 `/api-docs` 和相关测试。
+- 不创建重复的内部 API/数据库手册、历史归档或未实现模块空目录；保留有助于后续决策的限制与验证结论。
+- 不保存真实密钥、用户素材地址或媒体全文，不把临时探测文件当长期可重放证据。

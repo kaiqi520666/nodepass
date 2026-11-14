@@ -18,9 +18,28 @@ def main() -> None:
     commands.add_parser(
         "init-credentials-key", help="Append a missing credential key to local .env"
     )
+    commands.add_parser("seed-videos", help="Import the ten confirmed MEAICC video models")
+    commands.add_parser("seed-gpt", help="Configure ModelGate GPT models and token pricing")
     create = commands.add_parser("create-admin", help="Explicitly create an administrator")
     create.add_argument("email")
     args = parser.parse_args()
+
+    if args.command == "seed-gpt":
+        from app.services.text_catalog import seed_gpt_models
+
+        key = getpass.getpass("ModelGate GPT API Key: ").strip()
+        if not key or any(character.isspace() for character in key):
+            parser.error("API Key must not be empty or contain whitespace")
+        with get_session_factory()() as session:
+            print(f"Imported {seed_gpt_models(session, key)} GPT models.")
+        return
+
+    if args.command == "seed-videos":
+        from app.services.video_catalog import seed_video_models
+
+        with get_session_factory()() as session:
+            print(f"Imported {seed_video_models(session)} video models; existing models unchanged.")
+        return
 
     if args.command == "init-env":
         template = Path(".env.example").read_text()

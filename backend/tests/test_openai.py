@@ -221,13 +221,22 @@ def test_openapi_exposes_only_supported_developer_endpoint(client):
     assert set(schema["paths"]) == {
         "/v1/models",
         "/v1/images/generations",
+        "/v1/images/edits",
         "/v1/images/generations/{task_id}",
+        "/v1/videos",
+        "/v1/videos/{task_id}",
+        "/v1/chat/completions",
+        "/v1/responses",
     }
     assert schema["paths"]["/v1/models"]["get"]["security"] == [{"HTTPBearer": []}]
     assert schema["paths"]["/v1/images/generations"]["post"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/v1/images/edits"]["post"]["security"] == [{"HTTPBearer": []}]
     assert schema["paths"]["/v1/images/generations/{task_id}"]["get"]["security"] == [
         {"HTTPBearer": []}
     ]
+    for path, method in (("/v1/videos", "post"), ("/v1/videos/{task_id}", "get")):
+        assert schema["paths"][path][method]["security"] == [{"HTTPBearer": []}]
+        assert "本站异步扩展" in schema["paths"][path][method]["tags"]
 
 
 def test_database_error_does_not_expose_credentials_or_sql(client):

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { Check, Close, Edit, Key, Link, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { http, errorMessage } from '../../api/http'
@@ -17,9 +17,18 @@ const editingId = ref<number>()
 const formRef = ref<FormInstance>()
 const emptyForm = () => ({
   name: '', adapter_key: 'cangyuan_image', base_url: 'https://direct-api.cangyuansuanli.cn',
-  api_key: '', is_active: true, request_config: { timeout_seconds: 60, poll_interval_seconds: 5 },
+  api_key: '', is_active: true, request_config: { timeout_seconds: 60, poll_interval_seconds: 5, task_timeout_seconds: 1800 },
 })
 const form = reactive(emptyForm())
+const taskTimeoutHours = computed({
+  get: () => form.request_config.task_timeout_seconds / 3600,
+  set: (value: number) => { form.request_config.task_timeout_seconds = Math.round(value * 3600) },
+})
+function changeAdapter() {
+  const video = form.adapter_key === 'meaicc_video'
+  form.base_url = form.adapter_key === 'modelgate_openai' ? 'https://intl.modelgate.top' : video ? 'https://api.meaicc.com' : 'https://direct-api.cangyuansuanli.cn'
+  form.request_config = { timeout_seconds: 60, poll_interval_seconds: video ? 60 : 5, task_timeout_seconds: video ? 21600 : 1800 }
+}
 const rules: FormRules = {
   name: [{ required: true, whitespace: true, message: '请输入供应商名称', trigger: 'blur' }],
   api_key: [{
@@ -90,7 +99,7 @@ onMounted(load)
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="save">
         <el-form-item label="供应商名称" prop="name"><el-input v-model="form.name" maxlength="120" /></el-form-item>
         <div class="management-form-grid">
-          <el-form-item label="接入方式"><el-select v-model="form.adapter_key"><el-option label="沧元图片" value="cangyuan_image" /></el-select></el-form-item>
+          <el-form-item label="接入方式"><el-select v-model="form.adapter_key" :disabled="!!editingId" @change="changeAdapter"><el-option label="沧元图片" value="cangyuan_image" /><el-option label="MEAICC 视频" value="meaicc_video" /><el-option label="ModelGate GPT" value="modelgate_openai" /></el-select></el-form-item>
           <el-form-item label="状态"><el-switch v-model="form.is_active" active-text="启用" inactive-text="停用" /></el-form-item>
         </div>
         <el-form-item label="接口地址"><el-input v-model="form.base_url" :prefix-icon="Link" readonly /></el-form-item>
@@ -98,9 +107,11 @@ onMounted(load)
           <el-input v-model="form.api_key" :prefix-icon="Key" type="password" show-password autocomplete="new-password" maxlength="4096" />
         </el-form-item>
         <div class="management-form-grid">
-          <el-form-item label="请求超时（秒）"><el-input-number v-model="form.request_config.timeout_seconds" :min="10" :max="600" :precision="0" /></el-form-item>
-          <el-form-item label="查询间隔（秒）"><el-input-number v-model="form.request_config.poll_interval_seconds" :min="5" :max="60" :precision="0" /></el-form-item>
+          <el-form-item label="请求超时（秒）"><el-input-number v-model="form.request_config.timeout_seconds" :min="1" :precision="0" /></el-form-item>
+          <el-form-item v-if="form.adapter_key !== 'modelgate_openai'" label="查询间隔（秒）"><el-input-number v-model="form.request_config.poll_interval_seconds" :min="1" :precision="0" /></el-form-item>
+          <el-form-item v-if="form.adapter_key !== 'modelgate_openai'" label="任务超时（小时）"><el-input-number v-model="taskTimeoutHours" :min="1 / 3600" :step="0.5" /></el-form-item>
         </div>
+        <el-alert :title="form.adapter_key === 'modelgate_openai' ? '请求超时仅对新调用生效。' : '时间配置仅对新任务生效；超时任务继续查询，不会自动退款。'" type="info" :closable="false" show-icon />
       </el-form>
       <template #footer>
         <el-button :icon="Close" :disabled="saving" @click="dialogOpen = false">取消</el-button>

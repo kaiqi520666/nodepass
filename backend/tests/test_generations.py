@@ -89,6 +89,7 @@ def test_generation_rejects_unpriced_variant_and_insufficient_balance(client, se
     account = session.get(CreditAccount, user["id"])
     assert account.available == Decimal("2.0000")
     account.available = Decimal("0.0001")
+    model.prices[0].variant = {"quality": "low"}
     session.commit()
     response = client.post(
         "/v1/images/generations",
@@ -131,7 +132,7 @@ def test_task_log_exposes_details_without_user_delete(client, session):
     assert item["id"] == response.json()["id"]
     assert item["media_type"] == "image"
     assert item["model_name"] == "Test model"
-    assert item["consumed_amount"] == "1.2300"
+    assert item["consumed_amount"] == "1.23000000"
     assert item["duration_ms"] >= 0
     assert item["request_params"]["prompt"] == "a test image"
 

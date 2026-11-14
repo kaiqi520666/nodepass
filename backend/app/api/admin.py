@@ -1,4 +1,4 @@
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 
 from app.api.dependencies import AdminUser, Database
+from app.core.money import money
 from app.core.security import password_hash
 from app.models import CreditAccount, CreditEntry, Model, Provider, SystemSetting, User
 from app.schemas import (
@@ -25,6 +26,7 @@ from app.services.catalog_admin import (
     save_provider,
 )
 from app.services.settings import oss_summary, save_oss_settings, test_oss_connection
+from app.services.video_catalog import video_profiles
 
 router = APIRouter(prefix="/api/admin", include_in_schema=False)
 
@@ -59,9 +61,9 @@ def adjust_user_credits(
     user = session.scalar(select(User).options(joinedload(User.account)).where(User.id == user_id))
     if user is None or user.account is None:
         raise HTTPException(404, "用户不存在")
-    amount = payload.amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    amount = money(payload.amount)
     if amount <= 0:
-        raise HTTPException(422, "积分必须大于 0.0000")
+        raise HTTPException(422, "积分必须大于 0.00000000")
     account = session.scalar(
         select(CreditAccount).where(CreditAccount.user_id == user.id).with_for_update()
     )
@@ -78,7 +80,7 @@ def adjust_user_credits(
             idempotency_key=f"admin:{admin.id}:user:{user.id}:{uuid4()}",
             amount=amount,
             available_delta=available_delta,
-            frozen_delta=Decimal("0.0000"),
+            frozen_delta=Decimal("0.00000000"),
             description=payload.reason,
         )
     )
@@ -134,13 +136,15 @@ def list_managed_models(admin: AdminUser, session: Database):
         "data": [
             model_summary(row)
             for row in session.scalars(
-                select(Model)
-                .options(joinedload(Model.prices))
-                .where(Model.media_type == "image")
-                .order_by(Model.id.desc())
+                select(Model).options(joinedload(Model.prices)).order_by(Model.id.desc())
             ).unique()
         ]
     }
+
+
+@router.get("/video-options")
+def video_options(admin: AdminUser):
+    return {"data": video_profiles()}
 
 
 @router.post("/models", status_code=201)

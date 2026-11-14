@@ -22,7 +22,7 @@ def register(client):
 def test_registration_login_logout_and_decimal_balance(client, session):
     response = register(client)
     data = response.json()
-    assert data["account"] == {"available": "0.0000", "frozen": "0.0000"}
+    assert data["account"] == {"available": "0.00000000", "frozen": "0.00000000"}
     assert data["is_admin"] is False
     assert not {"password_hash", "password", "session_secret"} & data.keys()
     assert "httponly" in response.headers["set-cookie"].lower()
@@ -133,7 +133,7 @@ def test_forged_and_expired_sessions_are_rejected(client):
 
 @pytest.mark.parametrize(
     ("invalid", "error_type"),
-    [("-0.0001", IntegrityError), ("NaN", IntegrityError), ("Infinity", DataError)],
+    [("NaN", IntegrityError), ("Infinity", DataError), ("-Infinity", DataError)],
 )
 def test_database_rejects_invalid_balances(client, session, invalid, error_type):
     data = register(client).json()

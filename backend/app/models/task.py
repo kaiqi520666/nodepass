@@ -61,12 +61,14 @@ class Task(Timestamps, Base):
     provider_snapshot: Mapped[dict[str, Any]] = mapped_column(
         JSONB, server_default="{}", nullable=False
     )
+    result_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, server_default="[]", nullable=False
+    )
     upstream_task_id: Mapped[str | None] = mapped_column(String(200))
     upstream_status: Mapped[str | None] = mapped_column(String(64))
-    quantity: Mapped[int] = mapped_column(Integer, server_default="1")
-    frozen_amount: Mapped[Decimal] = mapped_column(Numeric(20, 4))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(24, 8), server_default="1")
+    frozen_amount: Mapped[Decimal] = mapped_column(Numeric(24, 8))
     cost_amount: Mapped[Decimal] = mapped_column(Numeric(24, 8))
-    cost_currency: Mapped[str] = mapped_column(String(16))
     timed_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -76,6 +78,10 @@ class Task(Timestamps, Base):
     review_required: Mapped[bool] = mapped_column(server_default="false")
     error_code: Mapped[str | None] = mapped_column(String(80))
     error_message: Mapped[str | None] = mapped_column(Text)
+
+    def has_timed_out(self, now: datetime) -> bool:
+        end = self.completed_at or now
+        return self.timed_out_at is not None or bool(self.deadline_at and end >= self.deadline_at)
 
     ledger_entries: Mapped[list["CreditEntry"]] = relationship(back_populates="task")
     task_assets: Mapped[list["TaskAsset"]] = relationship(back_populates="task")
@@ -119,7 +125,7 @@ class CreditEntry(Timestamps, Base):
     __table_args__ = (
         CheckConstraint(
             "entry_type IN ('freeze', 'settle', 'release', 'refund', 'recharge', "
-            "'admin_credit', 'admin_debit')",
+            "'admin_credit', 'admin_debit', 'text_charge')",
             name="entry_type",
         ),
         CheckConstraint(
@@ -137,9 +143,9 @@ class CreditEntry(Timestamps, Base):
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), index=True)
     entry_type: Mapped[str] = mapped_column(String(16))
     idempotency_key: Mapped[str] = mapped_column(String(160), unique=True)
-    amount: Mapped[Decimal] = mapped_column(Numeric(20, 4))
-    available_delta: Mapped[Decimal] = mapped_column(Numeric(20, 4))
-    frozen_delta: Mapped[Decimal] = mapped_column(Numeric(20, 4))
+    amount: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    available_delta: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    frozen_delta: Mapped[Decimal] = mapped_column(Numeric(24, 8))
     description: Mapped[str] = mapped_column(String(240))
 
     task: Mapped[Task | None] = relationship(back_populates="ledger_entries")

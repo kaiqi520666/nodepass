@@ -1,0 +1,9 @@
+{
+  "model": "YOUR_MODEL_ID",
+  "prompt": "Keep the person in image 1 and place them in the scene from image 2.",
+  "images": [
+    { "image_url": "https://YOUR_MEDIA_DOMAIN/YOUR_CHARACTER.png" },
+    { "image_url": "https://YOUR_MEDIA_DOMAIN/YOUR_SCENE.png" }
+  ],
+  "n": 1
+}

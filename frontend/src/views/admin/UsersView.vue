@@ -120,7 +120,7 @@ onMounted(load)
       <el-form label-position="top">
         <el-form-item label="用户"><el-input :model-value="creditUser?.email || ''" disabled /></el-form-item>
         <el-form-item label="调整方式" required><el-segmented v-model="credit.direction" :options="[{ label: '增加', value: 'increase' }, { label: '扣除', value: 'decrease' }]" /></el-form-item>
-        <el-form-item label="积分数量" required><el-input v-model="credit.amount" inputmode="decimal" placeholder="最多四位小数" /></el-form-item>
+        <el-form-item label="积分数量" required><el-input v-model="credit.amount" inputmode="decimal" placeholder="最多八位小数" /></el-form-item>
         <el-form-item label="备注" required><el-input v-model="credit.reason" maxlength="240" placeholder="填写本次调整原因" /></el-form-item>
       </el-form>
       <template #footer>

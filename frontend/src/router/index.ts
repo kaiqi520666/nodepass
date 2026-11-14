@@ -32,7 +32,10 @@ export const adminNavigation = [
 
 const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior: (to, _from, savedPosition) => {
+    if (to.path === '/api-docs' && to.hash) return { el: to.hash, top: 120 }
+    return savedPosition ?? { top: 0 }
+  },
   routes: [
     {
       path: '/',
@@ -148,9 +151,11 @@ router.beforeEach(async (to) => {
   if (auth.user && ['/login', '/register'].includes(to.path)) return '/console'
 })
 
-router.afterEach((to) => {
+router.afterEach((to, from) => {
   document.title = `${to.meta.title} · NodePass`
-  requestAnimationFrame(() => document.getElementById('main-content')?.focus())
+  if (to.path !== from.path) {
+    requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true }))
+  }
 })
 
 export default router

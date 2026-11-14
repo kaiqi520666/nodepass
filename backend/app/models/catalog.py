@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
     Identity,
+    Integer,
     Numeric,
     String,
     Text,
@@ -33,7 +34,7 @@ class Provider(Timestamps, Base):
 class Model(Timestamps, Base):
     __tablename__ = "models"
     __table_args__ = (
-        CheckConstraint("media_type IN ('image', 'video')", name="media_type"),
+        CheckConstraint("media_type IN ('image', 'video', 'text')", name="media_type"),
         CheckConstraint("jsonb_typeof(capabilities) = 'object'", name="capabilities"),
         CheckConstraint("jsonb_typeof(pricing_dimensions) = 'array'", name="pricing_dimensions"),
     )
@@ -48,6 +49,7 @@ class Model(Timestamps, Base):
     pricing_dimensions: Mapped[list[str]] = mapped_column(JSONB, server_default="[]")
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="false")
     prices: Mapped[list["ModelPrice"]] = relationship(back_populates="model")
+    token_price: Mapped["TokenPrice | None"] = relationship(back_populates="model")
 
 
 class ModelPrice(Timestamps, Base):
@@ -68,8 +70,34 @@ class ModelPrice(Timestamps, Base):
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"))
     variant: Mapped[dict[str, str]] = mapped_column(JSONB, server_default="{}")
     sale_unit: Mapped[str] = mapped_column(String(16))
-    sale_unit_price: Mapped[Decimal] = mapped_column(Numeric(20, 4))
+    sale_unit_price: Mapped[Decimal] = mapped_column(Numeric(24, 8))
     cost_unit: Mapped[str] = mapped_column(String(32))
     cost_unit_price: Mapped[Decimal] = mapped_column(Numeric(24, 8))
-    cost_currency: Mapped[str] = mapped_column(String(16))
     model: Mapped[Model] = relationship(back_populates="prices")
+
+
+class TokenPrice(Timestamps, Base):
+    __tablename__ = "token_prices"
+    __table_args__ = tuple(
+        CheckConstraint(f"{field} >= 0 AND {field} < 'Infinity'::numeric", name=field)
+        for field in (
+            "input_price",
+            "output_price",
+            "cache_read_price",
+            "cost_multiplier",
+            "sale_multiplier",
+            "long_context_input_multiplier",
+            "long_context_output_multiplier",
+        )
+    ) + (CheckConstraint("long_context_threshold > 0", name="long_context_threshold"),)
+
+    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), primary_key=True)
+    input_price: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    output_price: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    cache_read_price: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    cost_multiplier: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    sale_multiplier: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    long_context_threshold: Mapped[int] = mapped_column(Integer)
+    long_context_input_multiplier: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    long_context_output_multiplier: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    model: Mapped[Model] = relationship(back_populates="token_price")
