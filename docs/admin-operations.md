@@ -454,7 +454,7 @@ GET /api/admin/exceptions/text-calls
   "data": [
     {
       "id": "uuid",
-      "user": { "id": 1, "email": "user@example.com" },
+      "user": { "id": 1, "email": "user@example.com", "available": "1.50000000" },
       "model": "gpt-6.1-sol",
       "endpoint": "/v1/responses",
       "status": "usage_unknown",
@@ -673,7 +673,8 @@ GET /api/admin/audit-actions/{action_id}
 - 2026-11-15：CI + PostgreSQL 已接入，见 `.github/workflows/ci.yml` 和 `scripts/ci.sh`；
 - 2026-11-15：`admin_actions`、审计触发器、`resolution`/`late_usage` 字段、文本新状态和转存/迟到用量状态机已实现；
 - 2026-11-15：动作服务、异常列表、审计查询和管理员调账审计接口已实现；
-- 异常处理页面和操作审计页面尚未实现。
+- 2026-11-15：异常处理页面和操作审计页面已实现，动作按钮按 `allowed_actions` 渲染，释放和人工扣费有二次确认。
+- 2026-11-15：用户侧任务返回 `resolution`，人工释放显示“已关闭”，过渡处理显示“已重新处理/已重试转存”。
 
 ### 后端
 

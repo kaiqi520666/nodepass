@@ -25,6 +25,8 @@ export const consoleNavigation = [
 
 export const adminNavigation = [
   { path: '/admin/users', title: '用户管理', icon: 'users' },
+  { path: '/admin/exceptions', title: '异常处理', icon: 'exceptions' },
+  { path: '/admin/audit', title: '操作审计', icon: 'audit' },
   { path: '/admin/providers', title: '供应商配置', icon: 'providers' },
   { path: '/admin/models', title: '模型与价格', icon: 'models' },
   { path: '/admin/settings', title: '系统设置', icon: 'settings' },
@@ -120,6 +122,16 @@ const router = createRouter({
           path: 'users',
           component: () => import('../views/admin/UsersView.vue'),
           meta: { title: '用户管理' },
+        },
+        {
+          path: 'exceptions',
+          component: () => import('../views/admin/ExceptionsView.vue'),
+          meta: { title: '异常处理' },
+        },
+        {
+          path: 'audit',
+          component: () => import('../views/admin/AuditView.vue'),
+          meta: { title: '操作审计' },
         },
         {
           path: 'providers',

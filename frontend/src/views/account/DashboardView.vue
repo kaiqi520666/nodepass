@@ -23,6 +23,7 @@ type Task = {
   billing_status: string
   frozen_amount: string
   consumed_amount: string
+  resolution?: string | null
 }
 
 const auth = useAuthStore()
@@ -72,6 +73,10 @@ const statusLabels: Record<string, string> = {
 
 function statusLabel(status: string) {
   return statusLabels[status] || status
+}
+
+function taskStatusLabel(task: Task) {
+  return task.status === 'failed' && task.resolution === 'manual_released' ? '已关闭' : statusLabel(task.status)
 }
 
 function statusType(status: string) {
@@ -182,7 +187,7 @@ onMounted(refresh)
                 <strong>{{ task.model_name || task.model }}</strong>
                 <span>{{ task.model }} · {{ formatDate(task.created) }}</span>
               </div>
-              <el-tag :type="statusType(task.status)" effect="plain">{{ statusLabel(task.status) }}</el-tag>
+              <el-tag :type="statusType(task.status)" effect="plain">{{ taskStatusLabel(task) }}</el-tag>
               <span class="numeric dashboard-recent-amount">{{ billingAmount(task) }}</span>
             </li>
           </ul>

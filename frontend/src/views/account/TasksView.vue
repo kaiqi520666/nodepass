@@ -24,6 +24,7 @@ type Task = {
   request_params: Record<string, unknown>
   upstream_status: string | null
   error_message: string | null
+  resolution: string | null
   data: { url: string }[]
 }
 
@@ -81,6 +82,16 @@ function statusLabel(status: string) {
 
 function statusType(status: string) {
   return status === 'succeeded' ? 'success' : status === 'failed' ? 'danger' : status === 'submission_unknown' ? 'warning' : 'info'
+}
+
+function taskStatusLabel(task: Task) {
+  return task.status === 'failed' && task.resolution === 'manual_released' ? '已关闭' : statusLabel(task.status)
+}
+
+function resolutionHint(task: Task) {
+  if (task.resolution === 'manual_requeued') return '已重新处理'
+  if (task.resolution === 'manual_retry_transfer') return '已重试转存'
+  return ''
 }
 
 function billingStatusLabel(status: string) {
@@ -230,8 +241,9 @@ onMounted(load)
           </el-table-column>
           <el-table-column label="状态" width="130">
             <template #default="{ row }">
-              <el-tag :type="statusType(row.status)" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+              <el-tag :type="statusType(row.status)" effect="plain">{{ taskStatusLabel(row) }}</el-tag>
               <span v-if="row.timed_out" class="task-timeout">曾超时</span>
+              <span v-if="resolutionHint(row)" class="task-resolution">{{ resolutionHint(row) }}</span>
             </template>
           </el-table-column>
           <el-table-column label="耗时" width="120">
@@ -288,7 +300,7 @@ onMounted(load)
                   <strong>{{ row.model_name || row.model }}</strong>
                   <span>{{ mediaTypeLabel(row.media_type) }} · {{ formatDate(row.created) }}</span>
                 </div>
-                <el-tag :type="statusType(row.status)" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+                <el-tag :type="statusType(row.status)" effect="plain">{{ taskStatusLabel(row) }}</el-tag>
               </header>
               <div class="task-id">
                 <code>{{ row.id }}</code>
@@ -299,6 +311,7 @@ onMounted(load)
                 <div><dt>扣除积分</dt><dd class="numeric">{{ billingAmount(row) }}</dd></div>
                 <div><dt>计费状态</dt><dd>{{ billingStatusLabel(row.billing_status) }}</dd></div>
                 <div><dt>模型</dt><dd><code>{{ row.model }}</code></dd></div>
+                <div v-if="resolutionHint(row)"><dt>人工处理</dt><dd>{{ resolutionHint(row) }}</dd></div>
               </dl>
               <footer class="mobile-card-actions">
                 <template v-if="row.data.length">
@@ -338,7 +351,8 @@ onMounted(load)
           </div>
           <div class="task-detail-item">
             <span class="task-detail-label">状态</span>
-            <el-tag :type="statusType(selected.status)" effect="plain">{{ statusLabel(selected.status) }}</el-tag>
+            <el-tag :type="statusType(selected.status)" effect="plain">{{ taskStatusLabel(selected) }}</el-tag>
+            <span v-if="resolutionHint(selected)" class="task-resolution">{{ resolutionHint(selected) }}</span>
           </div>
           <div class="task-detail-item">
             <span class="task-detail-label">计费状态</span>

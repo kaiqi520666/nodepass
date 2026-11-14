@@ -193,10 +193,12 @@ def _task_item(session: Session, task: Task, email: str, now: datetime) -> dict:
     }
 
 
-def _text_item(session: Session, call: TextCall, email: str, now: datetime) -> dict:
+def _text_item(
+    session: Session, call: TextCall, email: str, available: Decimal, now: datetime
+) -> dict:
     return {
         "id": str(call.id),
-        "user": {"id": call.user_id, "email": email},
+        "user": {"id": call.user_id, "email": email, "available": _amount_text(available)},
         "model": call.price_snapshot.get("public_id", ""),
         "endpoint": f"/v1/{call.endpoint}",
         "status": call.status,
@@ -424,8 +426,9 @@ def list_exception_text_calls(
             TextCall.late_usage.is_not(None) if has_late_usage else TextCall.late_usage.is_(None)
         )
     rows = session.execute(
-        select(TextCall, User.email)
+        select(TextCall, User.email, CreditAccount.available)
         .join(User, User.id == TextCall.user_id)
+        .join(CreditAccount, CreditAccount.user_id == TextCall.user_id)
         .where(*conditions)
         .order_by(TextCall.created_at.asc())
         .offset(offset)
@@ -433,7 +436,9 @@ def list_exception_text_calls(
     ).all()
     total = session.scalar(select(func.count()).select_from(TextCall).where(*conditions))
     return {
-        "data": [_text_item(session, call, email, now) for call, email in rows],
+        "data": [
+            _text_item(session, call, email, available, now) for call, email, available in rows
+        ],
         "total": total or 0,
     }
 

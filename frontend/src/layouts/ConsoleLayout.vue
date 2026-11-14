@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bell, Connection, Expand, Grid, Histogram, House, Key, List, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { Bell, Connection, Document, Expand, Grid, Histogram, House, Key, List, Setting, SwitchButton, UserFilled, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { errorMessage } from '../api/http'
 import { adminNavigation, consoleNavigation } from '../router'
@@ -15,7 +15,17 @@ const router = useRouter()
 const mobileOpen = ref(false)
 const announcementsOpen = ref(false)
 const health = ref<'loading' | 'ok' | 'error'>('loading')
-const icons = { dashboard: Histogram, models: Grid, tokens: Key, tasks: List, settings: Setting, users: UserFilled, providers: Connection }
+const icons = {
+  dashboard: Histogram,
+  models: Grid,
+  tokens: Key,
+  tasks: List,
+  settings: Setting,
+  users: UserFilled,
+  providers: Connection,
+  exceptions: Warning,
+  audit: Document,
+}
 watch(() => route.path, () => {
   mobileOpen.value = false
   announcementsOpen.value = false

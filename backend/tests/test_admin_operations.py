@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
-from test_accounts import register
+from test_accounts import CREDENTIALS, register
 from test_catalog import add_model
 from test_generations import auth_headers, prepare_user
 
@@ -211,6 +211,14 @@ def test_task_release_is_idempotent_and_audited(client, session):
     )
     assert repeated.status_code == 409
 
+    client.post("/api/account/logout")
+    assert client.post("/api/account/login", json=CREDENTIALS).status_code == 200
+    tasks = client.get("/api/account/tasks").json()["data"]
+    user_task = next(item for item in tasks if item["id"] == str(task.task_id))
+    assert user_task["status"] == "failed"
+    assert user_task["resolution"] == "manual_released"
+    assert user_task["error_message"] == "任务已关闭，冻结积分已释放"
+
 
 def test_task_retry_transfer_and_ready_result_guard(client, session):
     task, user = _create_image_task(client, session)
@@ -300,6 +308,8 @@ def test_exception_summary_and_lists(client, session):
     assert text_calls.status_code == 200
     text_row = next(item for item in text_calls.json()["data"] if item["id"] == str(call.id))
     assert text_row["status"] == "usage_unknown"
+    account = session.get(CreditAccount, user["id"])
+    assert text_row["user"]["available"] == format(account.available, ".8f")
     assert text_row["allowed_actions"] == ["manual_charge", "close_no_charge"]
 
 

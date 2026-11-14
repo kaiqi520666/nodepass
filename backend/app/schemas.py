@@ -330,6 +330,7 @@ class TaskSummary(BaseModel):
     request_params: dict[str, Any] = Field(default_factory=dict)
     upstream_status: str | None = None
     error_message: str | None = None
+    resolution: str | None = None
     data: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_serializer("frozen_amount", "consumed_amount")

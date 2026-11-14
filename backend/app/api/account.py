@@ -248,6 +248,7 @@ def _task_summary(task: Task, links: list[TaskAsset]) -> TaskSummary:
         request_params=task.request_params,
         upstream_status=task.upstream_status,
         error_message=task.error_message,
+        resolution=task.resolution,
         data=data,
     )
 

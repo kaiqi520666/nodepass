@@ -331,6 +331,7 @@ pre { margin: 12px 0 24px; padding: 18px 20px; background: var(--app-code); bord
 .task-copy-button.el-button { flex-shrink: 0; width: 28px; height: 28px; }
 .task-created { margin-top: 4px; color: var(--app-muted); font-size: 12px; }
 .task-timeout { display: block; margin-top: 4px; color: var(--app-warning, #c38a2e); font-size: 12px; }
+.task-resolution { display: block; margin-top: 4px; color: var(--app-muted); font-size: 12px; }
 .task-billing { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
 .task-muted { color: var(--app-muted); }
 .task-log-tabs { margin-bottom: 12px; }
@@ -352,6 +353,9 @@ pre { margin: 12px 0 24px; padding: 18px 20px; background: var(--app-code); bord
 .task-detail-value { display: block; min-width: 0; color: var(--app-text); line-height: 1.5; overflow-wrap: anywhere; }
 .task-detail-item:last-child, .task-detail-item:nth-last-child(2):not(.task-detail-item-wide) { border-bottom: 0; }
 .task-detail-error { margin-bottom: 20px; }
+.admin-action-bar { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--app-border); }
+.admin-action-bar .el-button + .el-button { margin-left: 0; }
+.admin-action-hint { margin: 0 0 18px; color: var(--app-muted); line-height: 1.7; }
 .task-params { max-height: 240px; margin: 0; padding: 14px 16px; overflow: auto; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-surface); color: var(--app-text); font: 13px/1.6 monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .el-dialog { max-width: calc(100% - 32px); }
 .el-message-box { max-width: calc(100% - 32px); }
@@ -366,6 +370,14 @@ pre { margin: 12px 0 24px; padding: 18px 20px; background: var(--app-code); bord
 .managed-model-filters .model-search { flex: 1; min-width: 220px; max-width: 380px; }
 .managed-model-filters .el-select { width: 160px; }
 .managed-model-filters .el-select:last-child { width: 130px; }
+.exception-filters .el-input-number,
+.audit-filters .el-input-number { width: 150px; }
+.exception-filters .el-input { width: 220px; }
+.audit-filters .el-input { width: 180px; }
+.audit-reason { color: var(--app-muted); overflow-wrap: anywhere; }
+.audit-timeline-entry { display: grid; gap: 6px; }
+.audit-timeline-entry > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.audit-timeline-entry p { color: var(--app-muted); font-size: var(--text-small); line-height: 1.6; overflow-wrap: anywhere; }
 .managed-model-table .model-id { align-items: center; }
 .managed-model-table .model-id .el-button { padding: 4px; flex-shrink: 0; }
 .model-price-summary { position: relative; display: grid; gap: 6px; width: 100%; min-height: 36px; padding: 6px 20px 6px 0; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-align: right; cursor: pointer; }
@@ -535,7 +547,14 @@ html.dark .auth-brand { background: linear-gradient(145deg, #1d3029, var(--app-s
   .filter-bar > .el-segmented { align-self: flex-start; }
   .task-filters > .el-input,
   .task-filter-select,
-  .task-filters > .el-date-editor { width: 100%; }
+  .task-filters > .el-date-editor,
+  .exception-filters .el-input,
+  .exception-filters .el-input-number,
+  .audit-filters .el-input,
+  .audit-filters .el-input-number,
+  .audit-filters .el-date-editor { width: 100%; }
+  .exception-filters .filter-actions,
+  .audit-filters .filter-actions { flex-wrap: wrap; }
   .task-detail-summary { grid-template-columns: minmax(0, 1fr); }
   .task-detail-item-wide { grid-column: auto; }
   .task-detail-item:nth-last-child(2):not(.task-detail-item-wide) { border-bottom: 1px solid var(--app-border); }
