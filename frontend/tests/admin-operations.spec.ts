@@ -87,7 +87,7 @@ test('admin exception center lists tasks and text calls with audit timeline', as
 
   await page.goto('/admin/exceptions')
   await expect(page.getByRole('heading', { name: '异常处理' })).toBeVisible()
-  await expect(page.locator('.dashboard-statistic').filter({ hasText: '待核实任务' }).locator('dd')).toHaveText('2')
+  await expect(page.locator('.dashboard-statistic').filter({ hasText: '待核实任务' }).locator('dd')).toHaveText('3')
   await expect(page.locator('.dashboard-statistic').filter({ hasText: '卡住任务' }).locator('dd')).toHaveText('2')
   await expect(page.locator('.dashboard-statistic').filter({ hasText: '最久等待' }).locator('dd')).toHaveText('1 小时 30 分')
   await expect(page.getByText('task-owner@example.com', { exact: true })).toBeVisible()
@@ -221,4 +221,65 @@ test('admin actions send reasons, amounts and request ids', async ({ page }) => 
     reason: '按上游账单人工核定',
   })
   expect(textBodies[0]!.request_id).toMatch(uuid)
+})
+
+test('paused queued task can resume with confirmation and reuse its request id after an error', async ({ page }, testInfo) => {
+  await administrator(page)
+  await page.route('**/api/admin/exceptions/summary', route => route.fulfill({
+    json: {
+      tasks: { submission_unknown: 0, stuck_queued: 0, stuck_submitting: 0, stuck_processing: 0, stuck_transferring: 0, review_required: 1 },
+      text_calls: { usage_unknown: 0, stuck_processing: 0, late_usage: 0 },
+      oldest_waiting_seconds: 60,
+    },
+  }))
+  await page.route('**/api/admin/exceptions/tasks?*', route => route.fulfill({
+    json: {
+      data: [{ ...task, status: 'queued', has_upstream_id: false, allowed_actions: ['retry_submit', 'release'] }],
+      total: 1,
+    },
+  }))
+  await page.route('**/api/admin/audit-actions?*', route => route.fulfill({ json: { data: [], total: 0 } }))
+  const bodies: Array<Record<string, unknown>> = []
+  await page.route('**/api/admin/tasks/*/resolve', async route => {
+    bodies.push(route.request().postDataJSON())
+    await route.fulfill(bodies.length === 1
+      ? { status: 409, json: { detail: '目标正在被后台处理，请稍后重试' } }
+      : { json: {} })
+  })
+
+  await page.goto('/admin/exceptions')
+  await expect(page.locator('.dashboard-statistic').filter({ hasText: '待核实任务' }).locator('dd')).toHaveText('1')
+  await page.locator('.el-tab-pane:visible').getByRole('button', { name: '详情', exact: true }).first().click()
+  const drawer = page.getByRole('dialog', { name: '生成任务详情' })
+  await expect(drawer.getByRole('button', { name: '重新查询', exact: true })).toHaveCount(0)
+  await drawer.getByRole('button', { name: '恢复提交', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '恢复提交', exact: true })
+  await expect(dialog).toContainText('沿用原任务快照')
+  await dialog.getByRole('button', { name: '确认', exact: true }).click()
+  await expect(dialog).toContainText('原因至少 4 个字符')
+  expect(bodies).toHaveLength(0)
+
+  await dialog.getByRole('textbox', { name: '操作原因' }).fill('已修复供应商凭证并核实未提交')
+  await dialog.getByRole('button', { name: '确认', exact: true }).click()
+  const confirmation = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: '确认恢复', exact: true }) })
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '确认恢复提交', exact: true })).toBeHidden()
+  expect(bodies).toHaveLength(0)
+
+  await dialog.getByRole('button', { name: '确认', exact: true }).click()
+  await page.getByRole('button', { name: '确认恢复', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '确认恢复提交', exact: true })).toBeHidden()
+  await expect(dialog).toContainText('目标正在被后台处理，请稍后重试')
+  expect(bodies).toHaveLength(1)
+  await expect(dialog.getByRole('textbox', { name: '操作原因' })).toHaveValue('已修复供应商凭证并核实未提交')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('queued-retry-submit.png') })
+
+  await dialog.getByRole('button', { name: '确认', exact: true }).click()
+  await page.getByRole('button', { name: '确认恢复', exact: true }).click()
+  await expect(drawer).toBeHidden()
+  await expect(page.getByText('恢复提交已提交', { exact: true })).toBeVisible()
+  expect(bodies).toHaveLength(2)
+  expect(bodies[0]).toMatchObject({ action: 'retry_submit', reason: '已修复供应商凭证并核实未提交' })
+  expect(bodies[1]!.request_id).toBe(bodies[0]!.request_id)
 })

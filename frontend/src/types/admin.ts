@@ -26,6 +26,8 @@ export interface AdminTaskRow {
   has_upstream_id: boolean
   has_ready_result: boolean
   review_required: boolean
+  error_code: string | null
+  error_message: string | null
   resolution: string | null
   allowed_actions: string[]
   last_action: AdminLastAction | null

@@ -109,7 +109,7 @@ def decode_output(output: GenerationOutput) -> tuple[bytes, str]:
         try:
             return base64.b64decode(output.b64_json, validate=True), output.content_type
         except (ValueError, TypeError) as exc:
-            raise ProviderError("上游 Base64 结果无效") from exc
+            raise ProviderError("上游 Base64 结果无效", explicit_failure=True) from exc
     if not output.url:
         raise ProviderError("上游结果缺少可下载地址")
     request = Request(output.url, headers={"User-Agent": "Mozilla/5.0", "Accept": "image/*"})

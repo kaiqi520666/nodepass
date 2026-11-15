@@ -38,6 +38,7 @@ export function statusType(scope: 'task' | 'text', status: string): TagType {
 }
 
 export const adminActionLabels: Record<string, string> = {
+  'task.retry_submit': '恢复提交',
   'task.requery': '重新查询',
   'task.retry_transfer': '重试转存',
   'task.release': '释放冻结',
@@ -60,6 +61,7 @@ export function actionType(action: string): TagType {
 }
 
 const allowedActionLabels: Record<string, string> = {
+  retry_submit: '恢复提交',
   requery: '重新查询',
   retry_transfer: '重试转存',
   release: '释放',

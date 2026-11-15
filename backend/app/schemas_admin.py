@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class TaskResolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    action: Literal["requery", "retry_transfer", "release"]
+    action: Literal["retry_submit", "requery", "retry_transfer", "release"]
     reason: str = Field(min_length=4, max_length=240)
     request_id: UUID
 

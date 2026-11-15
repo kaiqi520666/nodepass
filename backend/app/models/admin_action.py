@@ -25,7 +25,8 @@ class AdminAction(Base):
     __tablename__ = "admin_actions"
     __table_args__ = (
         CheckConstraint(
-            "action IN ('task.requery', 'task.retry_transfer', 'task.release', "
+            "action IN ('task.retry_submit', 'task.requery', 'task.retry_transfer', "
+            "'task.release', "
             "'text.mark_unknown', 'text.manual_charge', 'text.close_no_charge', "
             "'user.credit_increase', 'user.credit_decrease')",
             name="action",

@@ -4,6 +4,7 @@ import tempfile
 from urllib.parse import quote
 
 import oss2
+from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -12,26 +13,53 @@ from app.models import SystemSetting
 from app.services.media import open_media
 
 
+class StorageConfigurationError(RuntimeError):
+    """Storage settings or permissions need human intervention."""
+
+
+def _put_object(bucket, key: str, content, *, headers: dict[str, str]) -> None:
+    try:
+        bucket.put_object(key, content, headers=headers)
+    except oss2.exceptions.OssError as exc:
+        if getattr(exc, "status", None) in {400, 401, 403, 404}:
+            raise StorageConfigurationError("OSS 存储配置或权限无效") from exc
+        raise
+
+
 def _bucket(session: Session, timeout: int = 60):
     setting = session.get(SystemSetting, "oss")
-    if setting is None or not setting.value.get("is_active") or not setting.secret_encrypted:
-        raise HTTPException(503, "OSS 尚未启用或配置不完整")
+    value = setting.value if setting is not None and isinstance(setting.value, dict) else {}
+    if setting is None or not value.get("is_active") or not setting.secret_encrypted:
+        raise StorageConfigurationError("OSS 尚未启用或配置不完整")
     try:
         credentials = json.loads(
             credential_cipher().decrypt(setting.secret_encrypted.encode("ascii")).decode()
         )
-        endpoint = str(setting.value["endpoint"]).strip()
+        if not isinstance(credentials, dict):
+            raise TypeError("invalid credentials")
+        endpoint = str(value["endpoint"]).strip()
         if not endpoint.startswith(("http://", "https://")):
             endpoint = f"https://{endpoint}"
+        bucket_name = str(value["bucket"]).strip()
+        public_base_url = str(value["public_base_url"]).strip()
+        if not endpoint or not bucket_name or not public_base_url:
+            raise ValueError("incomplete storage settings")
         bucket = oss2.Bucket(
             oss2.Auth(credentials["access_key_id"], credentials["access_key_secret"]),
             endpoint,
-            setting.value["bucket"],
-            region=setting.value.get("region") or None,
+            bucket_name,
+            region=value.get("region") or None,
             connect_timeout=timeout,
         )
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(503, "OSS 配置不完整") from exc
+    except (
+        HTTPException,
+        InvalidToken,
+        KeyError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise StorageConfigurationError("OSS 配置不完整") from exc
     return bucket, setting
 
 
@@ -46,7 +74,7 @@ def upload_result(
     prefix = str(setting.value.get("object_prefix") or "generated").strip("/")
     extension = content_type.split("/", 1)[-1].split(";")[0] or "bin"
     key = f"{prefix}/{task_id}/{position}.{extension}"
-    bucket.put_object(key, content, headers={"Content-Type": content_type})
+    _put_object(bucket, key, content, headers={"Content-Type": content_type})
     public_base_url = str(setting.value["public_base_url"]).rstrip("/")
     return {
         "region": setting.value.get("region", ""),
@@ -79,7 +107,7 @@ def upload_video_result(
         if expected_size is not None and byte_size != int(expected_size):
             raise OSError("上游视频下载不完整")
         temporary.seek(0)
-        bucket.put_object(key, temporary, headers={"Content-Type": content_type})
+        _put_object(bucket, key, temporary, headers={"Content-Type": content_type})
     return {
         "region": setting.value.get("region", ""),
         "bucket": setting.value["bucket"],

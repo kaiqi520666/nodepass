@@ -89,7 +89,7 @@ const statistics = computed(() => {
     ? taskSummary.stuck_queued + taskSummary.stuck_submitting + taskSummary.stuck_processing + taskSummary.stuck_transferring
     : null
   return [
-    { label: '待核实任务', value: taskSummary ? String(taskSummary.submission_unknown) : '—' },
+    { label: '待核实任务', value: taskSummary ? String(taskSummary.review_required) : '—' },
     { label: '卡住任务', value: stuck == null ? '—' : String(stuck) },
     { label: '待核实文本调用', value: textSummary ? String(textSummary.usage_unknown) : '—' },
     {
@@ -102,6 +102,9 @@ const currentLoading = computed(() => activeTab.value === 'tasks' ? taskLoading.
 const detailTitle = computed(() => detailKind.value === 'task' ? '生成任务详情' : '文本调用详情')
 const actionTitle = computed(() => allowedActionLabel(actionName.value))
 const actionHint = computed(() => {
+  if (actionName.value === 'retry_submit') {
+    return '恢复后将提交上游并可能产生费用；沿用原任务快照，请先核实配置已修复且该任务从未提交。'
+  }
   if (actionName.value === 'release') {
     return `任务将标记为失败，冻结积分 ${actionTask.value?.frozen_amount ?? '—'} 退回可用余额，且不可恢复。`
   }
@@ -267,7 +270,7 @@ async function copyId(id: string, label: string) {
 function actionButtonType(action: string): '' | 'primary' | 'success' | 'warning' | 'danger' | 'info' {
   if (action === 'release' || action === 'manual_charge') return 'danger'
   if (action === 'mark_unknown') return 'warning'
-  if (action === 'requery' || action === 'retry_transfer') return 'primary'
+  if (action === 'retry_submit' || action === 'requery' || action === 'retry_transfer') return 'primary'
   return ''
 }
 
@@ -309,6 +312,15 @@ async function submitAction() {
         `确认释放 ${actionTask.value?.frozen_amount ?? '—'} 冻结积分？任务将标记为失败且不可恢复。`,
         '释放冻结积分',
         { type: 'warning', confirmButtonText: '确认释放', cancelButtonText: '取消' },
+      )
+    } catch { return }
+  }
+  if (actionName.value === 'retry_submit') {
+    try {
+      await ElMessageBox.confirm(
+        '确认恢复此任务？后台将按原任务快照提交上游，可能产生费用。',
+        '确认恢复提交',
+        { type: 'warning', confirmButtonText: '确认恢复', cancelButtonText: '取消' },
       )
     } catch { return }
   }
@@ -417,6 +429,7 @@ onMounted(() => {
           <el-table-column label="状态" width="105">
             <template #default="{ row }">
               <el-tag :type="statusType('task', row.status)" effect="plain">{{ statusLabel('task', row.status) }}</el-tag>
+              <el-tag v-if="row.review_required" type="warning" effect="plain">待核实</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="冻结积分" width="130">
@@ -447,7 +460,10 @@ onMounted(() => {
                   <strong>{{ row.user.email }}</strong>
                   <span>{{ row.model || '—' }} · {{ row.media_type === 'image' ? '图片' : '视频' }}</span>
                 </div>
-                <el-tag :type="statusType('task', row.status)" effect="plain">{{ statusLabel('task', row.status) }}</el-tag>
+                <div>
+                  <el-tag :type="statusType('task', row.status)" effect="plain">{{ statusLabel('task', row.status) }}</el-tag>
+                  <el-tag v-if="row.review_required" type="warning" effect="plain">待核实</el-tag>
+                </div>
               </header>
               <div class="task-id">
                 <code>{{ row.id }}</code>
@@ -607,6 +623,10 @@ onMounted(() => {
           <div class="task-detail-item">
             <span class="task-detail-label">待核实标记</span>
             <span class="task-detail-value">{{ selectedTask.review_required ? '是' : '否' }}</span>
+          </div>
+          <div v-if="selectedTask.error_message" class="task-detail-item task-detail-item-wide">
+            <span class="task-detail-label">暂停原因</span>
+            <span class="task-detail-value">{{ selectedTask.error_message }}</span>
           </div>
           <div class="task-detail-item">
             <span class="task-detail-label">人工处理结果</span>

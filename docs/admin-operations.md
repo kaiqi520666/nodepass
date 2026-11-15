@@ -1,6 +1,6 @@
 # 管理员异常处理与账务审计
 
-更新：2026-11-15。本文定稿 v1.1 的异常处理动作矩阵、状态映射、接口字段和审计字段。未实现前只是设计规范，不代表页面或接口已经可用。
+更新：2026-11-16。本文维护 v1.1 的异常处理动作矩阵、状态映射、接口字段和审计字段，以及暂停排队任务的恢复规则。实现状态见文末。
 
 与 [需求与约定](requirements.md) 冲突时以需求为准；涉及账务和任务状态的既有规则见[任务与账务](task-lifecycle.md)。本文新增的规则在实现时同步回需求文档。
 
@@ -19,7 +19,7 @@
 ### v1.1 范围
 
 - 查询待核实、卡住、超时的生成任务和文本调用；
-- 对生成任务执行重新查询、重试转存、人工释放；
+- 对生成任务执行恢复未提交的暂停任务、重新查询、重试转存、人工释放；
 - 对文本调用执行标记待核实、人工扣费、关闭不扣费；
 - 为管理员调账补充审计；
 - 提供只读的账务操作审计查询；
@@ -61,19 +61,21 @@
 
 | 当前状态 | 账务 | 是否进入异常列表 | 允许动作 | 动作后状态 | 账务变化 |
 | --- | --- | --- | --- | --- | --- |
-| `queued` | `held` | 空闲超过 15 分钟时只读展示 | 无 | 等待 Worker | 无 |
+| `queued` | `held` | `review_required` 时立即，否则空闲超过 15 分钟只读展示 | 暂停且无提交/结果记录：`retry_submit`、`release` | 保持 `queued` 或 `failed` | 恢复无账务变化；释放退冻结 |
 | `submitting` | `held` | 空闲超过 15 分钟时只读展示 | 无 | Worker 中断后转 `submission_unknown` | 无 |
 | `submission_unknown` | `held` | 是，立即 | 有上游 ID：`requery`；无上游 ID：`release` | `pending` 或 `failed` | 重查无账务变化；释放退冻结 |
-| `pending` | `held` | 空闲超过 15 分钟 | `requery`、`release` | 保持 `pending` 或 `failed` | 重查无账务变化；释放退冻结 |
-| `processing` | `held` | 空闲超过 15 分钟 | `requery`、`release` | 保持 `processing` 或 `failed` | 同上 |
-| `transferring` | `held` | 空闲超过 10 分钟 | 有结果快照/就绪素材：`retry_transfer`；无就绪结果时可 `release` | 保持 `transferring` 或 `failed` | 重试无账务变化；释放退冻结 |
+| `pending` | `held` | `review_required` 时立即，否则空闲超过 15 分钟 | `requery`、`release` | 保持 `pending` 或 `failed` | 重查无账务变化；释放退冻结 |
+| `processing` | `held` | `review_required` 时立即，否则空闲超过 15 分钟 | `requery`、`release` | 保持 `processing` 或 `failed` | 同上 |
+| `transferring` | `held` | `review_required` 时立即，否则空闲超过 10 分钟 | 有结果快照/就绪素材：`retry_transfer`；无就绪结果时可 `release` | 保持 `transferring` 或 `failed` | 重试无账务变化；释放退冻结 |
 | `succeeded` | `settled` | 否 | 无 | 终态 | 无 |
 | `failed` | `released` | 否 | 无 | 终态 | 无 |
 | 任意 | `refunded` | 否 | 无 | 终态；v1.1 不提供退款入口 | 无 |
 
 补充规则：
 
-- `queued` 和 `submitting` 只用于发现 Worker 未运行或提交卡住，不提供人工动作；`submitting` 避免与在途提交竞争，等待 Worker 标记或转存。
+- 正常 `queued` 和 `submitting` 仍只读；仅 `queued/review_required` 且无 `upstream_task_id`、`submitted_at`、结果快照及就绪素材时允许恢复提交或释放。`submitting` 避免与在途提交竞争，等待单 Worker 标记或转存。
+- `review_required=true` 的任务停止自动领取。恢复动作清除标记，重新领取前仍受正常 Worker 检查约束；异常不会自动退款。
+- 任务列表返回脱敏的 `error_code`/`error_message`，详情展示暂停原因；列表状态旁显示“待核实”标签。
 - `submission_unknown` 只有在存在 `upstream_task_id` 时允许 `requery`；否则只能 `release`。
 - `transferring` 存在已就绪结果素材时禁止 `release`，必须使用 `retry_transfer`，避免用户已可获得结果却被退款。
 - 转存由 Worker 在持有任务行锁的事务中执行；查询成功后不再递归转存，任务提交为 `transferring` 后由下一次 Worker 循环加锁处理。
@@ -127,6 +129,16 @@
 
 ## 动作定义
 
+### `task.retry_submit`
+
+- 适用：`queued` 且 `review_required=true`，`billing_status=held`。
+- 前置条件：没有上游 ID、提交时间、结果快照或就绪素材；管理员已核实从未提交。
+- 效果：保持 `queued`，清除错误及 `review_required`，`next_run_at=当前时间`，`resolution=manual_requeued`。
+- 账务：不再次冻结、不结算、不释放。
+- 快照：不更新供应商地址、适配器、参数、时限、价格等原快照；执行时仍使用当前供应商凭证。无法恢复的历史快照须人工核实后释放，不允许原地替换。
+- 并发/幂等/审计：沿用 `FOR UPDATE NOWAIT`、`request_id` 和同事务审计，重放不再次排队；`submitting`、受理不明和在途任务禁止此动作。
+- 前端：显示“恢复提交”，填写原因并二次确认可能产生上游费用。
+
 ### `task.requery`
 
 - 适用：`submission_unknown`（必须有上游 ID）、`pending`、`processing`。
@@ -153,7 +165,7 @@
 
 ### `task.release`
 
-- 适用：`submission_unknown`、`pending`、`processing`、`transferring`。
+- 适用：符合上述未提交条件的暂停 `queued`，或 `submission_unknown`、`pending`、`processing`、`transferring`。
 - 前置条件：`billing_status = held`；不存在状态为 `ready` 的结果素材。
 - 效果：
   - `status = failed`；
@@ -263,6 +275,7 @@
 动作枚举：
 
 ```text
+task.retry_submit
 task.requery
 task.retry_transfer
 task.release
@@ -354,6 +367,8 @@ closed_no_charge
 7. 不 backfill 历史数据，既有记录 `resolution`、`late_usage` 为空；
 8. 同步更新 `text_calls.status` 的 Pydantic Literal、账户返回 schema、前端状态映射、公开文档状态表和测试；
 9. 执行 `alembic check` 确认模型与迁移一致。
+
+`20261116_0014` 仅扩展 `admin_actions.action` 约束以允许 `task.retry_submit`，不修改历史流水或任务快照。已有该类审计时，降级会因旧约束不接受新动作而拒绝并回滚；不得为降级删除或改写不可变审计记录。
 
 ## 后端接口
 
@@ -491,7 +506,7 @@ POST /api/admin/tasks/{task_id}/resolve
 }
 ```
 
-`action` 枚举：`requery`、`retry_transfer`、`release`。
+`action` 枚举：`retry_submit`、`requery`、`retry_transfer`、`release`。
 
 响应：
 
@@ -610,14 +625,16 @@ GET /api/admin/audit-actions/{action_id}
 - 桌面表格、移动端卡片；
 - 详情抽屉：任务/调用快照、上游状态、冻结/扣费金额、最近动作、审计时间线；
 - 操作区：
-  - 任务：重新查询、重试转存、释放；
+  - 任务：恢复提交、重新查询、重试转存、释放；
   - 文本：标记待核实、人工扣费、关闭不扣费；
   - 原因必填；
   - 人工扣费金额输入使用字符串，显示八位小数；
-  - 释放和扣费需要二次确认；
+  - 恢复提交、释放和扣费需要二次确认；
   - 提交时禁用按钮，成功后刷新列表。
 
 打开动作弹窗时生成 `request_id`，同一弹窗内重试复用同一个 ID；关闭后重新打开生成新 ID。
+
+生成任务“待核实任务”统计读取 `review_required` 数量，包含暂停的排队、查询和转存任务，不仅是 `submission_unknown`。
 
 ### 操作审计
 
@@ -709,7 +726,7 @@ GET /api/admin/audit-actions/{action_id}
 - 动作与状态联动，非法动作不可选；
 - 原因、金额校验；
 - 提交中按钮禁用；
-- 释放/扣费二次确认；
+  - 恢复提交、释放和扣费需要二次确认，并在恢复提交时展示暂停原因及可能产生的上游费用；
 - 审计页只读；
 - 三态主题、375px 无横向滚动。
 

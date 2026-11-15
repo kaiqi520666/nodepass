@@ -113,6 +113,16 @@ def _has_ready_result(session: Session, task_id: int) -> bool:
 def task_allowed_actions(task: Task, ready_result: bool) -> list[str]:
     if task.billing_status != "held":
         return []
+    if task.status == "queued":
+        if (
+            task.review_required
+            and not task.upstream_task_id
+            and task.submitted_at is None
+            and not task.result_snapshot
+            and not ready_result
+        ):
+            return ["retry_submit", "release"]
+        return []
     if task.status == "submission_unknown":
         actions = ["requery"] if task.upstream_task_id else []
         return [*actions, "release"]
@@ -187,6 +197,8 @@ def _task_item(session: Session, task: Task, email: str, now: datetime) -> dict:
         "has_upstream_id": bool(task.upstream_task_id),
         "has_ready_result": ready,
         "review_required": task.review_required,
+        "error_code": task.error_code if task.review_required else None,
+        "error_message": task.error_message if task.review_required else None,
         "resolution": task.resolution,
         "allowed_actions": task_allowed_actions(task, ready),
         "last_action": _last_action(session, "task", str(task.task_id)),
@@ -482,7 +494,13 @@ def resolve_task(
 
     credit_entry_id: int | None = None
     amount: Decimal | None = None
-    if payload.action == "requery":
+    if payload.action == "retry_submit":
+        task.next_run_at = now
+        task.review_required = False
+        task.error_code = None
+        task.error_message = None
+        task.resolution = "manual_requeued"
+    elif payload.action == "requery":
         if task.status == "submission_unknown":
             if not task.upstream_task_id:
                 raise HTTPException(409, "任务缺少上游 ID，无法重新查询")
